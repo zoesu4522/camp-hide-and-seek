@@ -66,7 +66,7 @@ export const mockAdminService: AdminService = {
       if (f.submissionId !== submissionId) return f;
       return action === "approve"
         ? { ...f, isVerified: true }
-        : { ...f, isFound: false, foundAt: null, photoUrl: null, submissionId: null, isVerified: false };
+        : { ...f, isFound: false, foundAt: null, photoUrl: null, submissionId: null, foundByName: null, isVerified: false };
     });
 
     writeDb(recount({ ...db, submissions, figures }));

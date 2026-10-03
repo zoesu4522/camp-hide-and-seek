@@ -73,8 +73,12 @@ export default function FoundToast({ event, total }: Props) {
             <p className="mt-2 text-[28px] leading-tight text-ink">
               找到 <span className="text-wood">#{event.number}</span>！
             </p>
-            <p className="mt-0.5 text-[13px] text-ink/60">
-              {event.source === "local" ? "已同步給所有玩家" : "其他玩家剛剛找到了"}
+            <p className="mt-0.5 truncate text-[14px] text-ink/70">
+              {event.source === "local"
+                ? "你找到的！已同步給所有玩家"
+                : event.foundByName
+                  ? `${event.foundByName} 剛剛找到了`
+                  : "其他玩家剛剛找到了"}
             </p>
             <div className="mx-auto mt-3 w-fit rounded-xl bg-wood px-4 py-1.5 text-cream">
               <span className="text-[13px] tracking-widest">目前進度　</span>

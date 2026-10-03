@@ -17,6 +17,7 @@ export interface FigureRow {
   found_at: string | null;
   photo_path: string | null;
   submission_id: string | null;
+  found_by_name: string | null;
   is_verified: boolean;
 }
 
@@ -25,6 +26,7 @@ export interface SubmissionRow {
   game_id: string;
   figure_number: number;
   player_id: string;
+  player_name: string | null;
   photo_path: string;
   photo_bytes: number | null;
   upload_status: Submission["uploadStatus"];
@@ -36,9 +38,9 @@ export interface SubmissionRow {
 }
 
 export const GAME_COLUMNS = "id, slug, title, is_completed";
-export const FIGURE_COLUMNS = "id, game_id, number, is_found, found_at, photo_path, submission_id, is_verified";
+export const FIGURE_COLUMNS = "id, game_id, number, is_found, found_at, photo_path, submission_id, found_by_name, is_verified";
 export const SUBMISSION_COLUMNS =
-  "id, game_id, figure_number, player_id, photo_path, photo_bytes, upload_status, upload_error, review_status, created_at, reviewed_at, reviewed_by";
+  "id, game_id, figure_number, player_id, player_name, photo_path, photo_bytes, upload_status, upload_error, review_status, created_at, reviewed_at, reviewed_by";
 
 export const toGame = (r: GameRow): Game => ({
   id: r.id,
@@ -55,6 +57,7 @@ export const toFigure = (r: FigureRow): Figure => ({
   foundAt: r.found_at,
   photoUrl: photoPublicUrl(r.photo_path),
   submissionId: r.submission_id,
+  foundByName: r.found_by_name ?? null,
   isVerified: r.is_verified,
 });
 
@@ -63,6 +66,7 @@ export const toSubmission = (r: SubmissionRow): Submission => ({
   gameId: r.game_id,
   figureNumber: r.figure_number,
   playerId: r.player_id,
+  playerName: r.player_name ?? null,
   // 上傳失敗的投稿 Storage 裡沒有檔案
   photoUrl: r.upload_status === "uploaded" ? photoPublicUrl(r.photo_path) : null,
   photoBytes: r.photo_bytes,

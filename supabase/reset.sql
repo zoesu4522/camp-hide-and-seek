@@ -7,7 +7,7 @@
 begin;
 
 update public.figures f
-   set is_found = false, found_at = null, photo_path = null, submission_id = null, is_verified = false
+   set is_found = false, found_at = null, photo_path = null, submission_id = null, found_by_name = null, is_verified = false
   from public.games g
  where f.game_id = g.id and g.slug = 'camp-hide-and-seek';
 

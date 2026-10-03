@@ -57,6 +57,7 @@ export function useCampGame(service: GameService = gameService, slug: string = G
           source,
           foundCount,
           photoUrl: incoming.photoUrl,
+          foundByName: incoming.foundByName,
         });
       } else if (!incoming.isFound && existing?.isFound) {
         announced.current.delete(incoming.number);

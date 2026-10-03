@@ -1,7 +1,7 @@
 "use client";
 
 import { MotionConfig } from "framer-motion";
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useCampGame } from "@/hooks/useCampGame";
 import type { Figure, FoundEvent } from "@/types/game";
 import HeroSection from "./HeroSection";
@@ -13,6 +13,9 @@ import ConfirmFoundModal, { type SubmitOutcome } from "./ConfirmFoundModal";
 import PhotoViewer, { type PhotoViewerItem } from "./PhotoViewer";
 import { getPlayerId } from "@/lib/playerId";
 import { IS_MOCK } from "@/lib/services";
+import { readPlayerName, savePlayerName, subscribePlayerName } from "@/lib/playerName";
+import PlayerNameGate from "./PlayerNameGate";
+import BackgroundMusic, { type BackgroundMusicHandle } from "./BackgroundMusic";
 import FoundToast from "./FoundToast";
 import MessageToast, { type ToastMessage } from "./MessageToast";
 import CompletionOverlay from "./CompletionOverlay";
@@ -62,6 +65,18 @@ export default function CampGameApp() {
   }, []);
 
   const showDemo = useSyncExternalStore(noopSubscribe, readDemoFlag, () => false);
+
+  // ---- 玩家名稱 ----
+  const playerName = useSyncExternalStore(subscribePlayerName, readPlayerName, () => null);
+  const [editingName, setEditingName] = useState(false);
+  const musicRef = useRef<BackgroundMusicHandle>(null);
+  const needName = !introPending && !introPlaying && !playerName;
+
+  const submitName = useCallback((name: string) => {
+    musicRef.current?.start(); // 使用者手勢：手機也能開始播放音樂
+    savePlayerName(name);
+    setEditingName(false);
+  }, []);
 
   // ---- UI state ----
   const [selectedFigure, setSelectedFigure] = useState<Figure | null>(null);
@@ -115,6 +130,7 @@ export default function CampGameApp() {
       figureNumber: selectedFigure.number,
       photo,
       playerId: getPlayerId(),
+      playerName: playerName ?? "",
       onProgress,
     });
     if (result.status === "success") {
@@ -139,7 +155,7 @@ export default function CampGameApp() {
       key: `${f.number}-${f.submissionId}`,
       url: f.photoUrl,
       title: `#${f.number} 躲貓貓小人`,
-      subtitle: time ? `${time} 找到` : undefined,
+      subtitle: [f.foundByName, time ? `${time} 找到` : null].filter(Boolean).join("・") || undefined,
       badge: f.isVerified ? (
         <span className="shrink-0 rounded-full bg-forest px-3 py-1 text-[13px] text-white">✓ 管理員已確認</span>
       ) : (
@@ -158,7 +174,7 @@ export default function CampGameApp() {
   return (
     <MotionConfig reducedMotion="user">
       <main className="relative z-20 mx-auto w-full max-w-[430px] overflow-x-clip pb-[calc(env(safe-area-inset-bottom)+40px)]">
-        <HeroSection />
+        <HeroSection playerName={playerName} onEditName={() => setEditingName(true)} />
 
         {game.status === "loading" && !introPlaying && !introPending && <LoadingCamp />}
 
@@ -174,7 +190,7 @@ export default function CampGameApp() {
             <FigureGrid
               figures={game.figures}
               celebrateNumber={celebrateNumber}
-              onSelect={setSelectedFigure}
+              onSelect={(f) => (playerName ? setSelectedFigure(f) : setEditingName(true))}
               onView={openPhoto}
             />
             <HowToPlay />
@@ -191,6 +207,15 @@ export default function CampGameApp() {
       <FoundToast event={toastEvent} total={game.total} />
       <MessageToast message={message} />
       <CompletionOverlay open={showCompletion} total={game.total} onClose={closeCompletion} />
+
+      <PlayerNameGate
+        open={needName || editingName}
+        initialName={playerName}
+        editing={!!playerName}
+        onSubmit={submitName}
+        onCancel={() => setEditingName(false)}
+      />
+      <BackgroundMusic ref={musicRef} />
 
       {/* SSR / hydration 期間先蓋深色，避免 opening 前閃一下內容 */}
       {introPending && <div className="fixed inset-0 z-[70] bg-night" aria-hidden />}

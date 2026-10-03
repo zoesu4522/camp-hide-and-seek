@@ -176,7 +176,7 @@ export default function AdminDashboard({ service, session, onSignOut }: Props) {
                 <button
                   type="button"
                   disabled={!f.photoUrl}
-                  onClick={() => f.photoUrl && view(f.photoUrl, f.number, `${time(f.foundAt)} 點亮`)}
+                  onClick={() => f.photoUrl && view(f.photoUrl, f.number, `${f.foundByName ? `${f.foundByName}・` : ""}${time(f.foundAt)} 點亮`)}
                   aria-label={`#${f.number} ${label}${f.photoUrl ? "，看照片" : ""}`}
                   className={`relative block aspect-[3/4] w-full overflow-hidden rounded-xl border-2 outline-none focus-visible:ring-2 focus-visible:ring-ember ${
                     !f.isFound ? "border-white/10 bg-[#0f2236]" : f.isVerified ? "border-sky" : "border-ember"
@@ -254,7 +254,7 @@ export default function AdminDashboard({ service, session, onSignOut }: Props) {
                 <button
                   type="button"
                   disabled={!s.photoUrl}
-                  onClick={() => s.photoUrl && view(s.photoUrl, s.figureNumber, `玩家 ${s.playerId}・${time(s.createdAt)}`)}
+                  onClick={() => s.photoUrl && view(s.photoUrl, s.figureNumber, `${s.playerName ?? `玩家 ${s.playerId}`}・${time(s.createdAt)}`)}
                   aria-label={s.photoUrl ? `看 #${s.figureNumber} 的照片` : "沒有照片"}
                   className="relative h-[104px] w-[78px] shrink-0 overflow-hidden rounded-xl bg-[#07182b] outline-none focus-visible:ring-2 focus-visible:ring-ember"
                 >
@@ -277,7 +277,8 @@ export default function AdminDashboard({ service, session, onSignOut }: Props) {
                     )}
                   </div>
                   <p className="mt-1.5 text-[13px] text-cream/60">
-                    玩家 {s.playerId}・{time(s.createdAt)}
+                    {s.playerName ? <span className="text-cream">{s.playerName}</span> : "（未填名字）"}
+                    <span className="text-cream/40">（{s.playerId}）</span>・{time(s.createdAt)}
                     {kb(s.photoBytes) && `・${kb(s.photoBytes)}`}
                   </p>
                   {s.uploadError && <p className="mt-1 text-[13px] text-[#ffab88]">原因：{s.uploadError}</p>}

@@ -42,7 +42,7 @@ export const mockGameService: GameService = {
     return { game: db.game, figures: db.figures };
   },
 
-  async submitFind(_slug, { figureNumber, photo, playerId, onProgress }): Promise<MarkFoundResult> {
+  async submitFind(_slug, { figureNumber, photo, playerId, playerName, onProgress }): Promise<MarkFoundResult> {
     const start = readDb();
     const target = start.figures.find((f) => f.number === figureNumber);
     if (!target) return { status: "error", error: "unknown" };
@@ -53,6 +53,7 @@ export const mockGameService: GameService = {
       gameId: start.game.id,
       figureNumber,
       playerId,
+      playerName,
       photoUrl: null,
       photoBytes: photo.size,
       uploadStatus: "uploading",
@@ -116,6 +117,7 @@ export const mockGameService: GameService = {
       foundAt: new Date().toISOString(),
       photoUrl,
       submissionId: submission.id,
+      foundByName: playerName,
       isVerified: false,
     };
     const next: MockDb = recount({
@@ -154,6 +156,7 @@ export function mockSimulateRemoteFind(): number | null {
     gameId: db.game.id,
     figureNumber: pick.number,
     playerId: "SIM" + Math.floor(Math.random() * 9),
+    playerName: "模擬玩家",
     photoUrl,
     photoBytes: null,
     uploadStatus: "uploaded",
@@ -168,7 +171,7 @@ export function mockSimulateRemoteFind(): number | null {
       ...db,
       figures: db.figures.map((f) =>
         f.number === pick.number
-          ? { ...f, isFound: true, foundAt: sub.createdAt, photoUrl, submissionId: sub.id, isVerified: false }
+          ? { ...f, isFound: true, foundAt: sub.createdAt, photoUrl, submissionId: sub.id, foundByName: sub.playerName, isVerified: false }
           : f,
       ),
       submissions: [sub, ...db.submissions],

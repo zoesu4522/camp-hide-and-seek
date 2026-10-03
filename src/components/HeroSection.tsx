@@ -28,7 +28,12 @@ export function PeekingFigure({ side = "left" }: { side?: "left" | "right" }) {
   );
 }
 
-export default function HeroSection() {
+interface HeroProps {
+  playerName?: string | null;
+  onEditName?: () => void;
+}
+
+export default function HeroSection({ playerName, onEditName }: HeroProps) {
   return (
     <section className="relative overflow-hidden px-4 pb-4 pt-[calc(env(safe-area-inset-top)+28px)]">
       <PeekingFigure side="left" />
@@ -58,6 +63,24 @@ export default function HeroSection() {
           <br />
           尋找藏起來的 8 個小人！
         </motion.p>
+
+        {playerName && (
+          <motion.button
+            type="button"
+            variants={fadeUp}
+            onClick={onEditName}
+            aria-label={`目前名字：${playerName}，點我修改`}
+            className="mt-3 inline-flex min-h-10 max-w-full items-center gap-1.5 rounded-full border border-cream/25 bg-[#07182b]/60 px-4 text-[15px] text-cream"
+          >
+            <span aria-hidden>👋</span>
+            <span className="truncate">
+              嗨，<span className="text-ember">{playerName}</span>
+            </span>
+            <span aria-hidden className="text-[13px] text-cream/60">
+              ✎
+            </span>
+          </motion.button>
+        )}
       </motion.div>
     </section>
   );

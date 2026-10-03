@@ -5,7 +5,7 @@
  */
 import { TOTAL_FIGURES, type Figure, type Game, type Submission } from "@/types/game";
 
-export const DB_KEY = "camp-hide-and-seek:mock-db:v2";
+export const DB_KEY = "camp-hide-and-seek:mock-db:v3";
 const DEMO_FOUND = [1, 3, 6];
 
 export interface MockDb {
@@ -46,6 +46,7 @@ export function seedDb(foundNumbers: number[] = DEMO_FOUND): MockDb {
         gameId,
         figureNumber: number,
         playerId: "DEMO",
+        playerName: ["小明", "阿凱", "Sumo"][number % 3],
         photoUrl: demoPhoto(number),
         photoBytes: null,
         uploadStatus: "uploaded",
@@ -64,6 +65,7 @@ export function seedDb(foundNumbers: number[] = DEMO_FOUND): MockDb {
       foundAt: isFound ? now : null,
       photoUrl: isFound ? demoPhoto(number) : null,
       submissionId,
+      foundByName: isFound ? ["小明", "阿凱", "Sumo"][number % 3] : null,
       isVerified: false,
     };
   });

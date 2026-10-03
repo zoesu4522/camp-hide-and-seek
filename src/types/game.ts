@@ -18,6 +18,8 @@ export interface Figure {
   photoUrl: string | null;
   /** 對應的投稿 id */
   submissionId: string | null;
+  /** 找到的玩家名稱 */
+  foundByName: string | null;
   /** 管理員已確認照片正確 */
   isVerified: boolean;
 }
@@ -40,6 +42,7 @@ export interface Submission {
   gameId: string;
   figureNumber: number;
   playerId: string;
+  playerName: string | null;
   photoUrl: string | null;
   photoBytes: number | null;
   uploadStatus: UploadStatus;
@@ -69,6 +72,7 @@ export interface FoundEvent {
   source: "local" | "remote";
   foundCount: number;
   photoUrl: string | null;
+  foundByName: string | null;
 }
 
 /** 照片被管理員退回 → 小人重新躲起來 */
@@ -81,6 +85,7 @@ export interface SubmitFindInput {
   figureNumber: number;
   photo: Blob;
   playerId: string;
+  playerName: string;
   onProgress?: (ratio: number) => void;
 }
 

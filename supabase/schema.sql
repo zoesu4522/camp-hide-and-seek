@@ -9,7 +9,7 @@
 --   2. updated_at trigger、constraints、index
 --   3. Storage bucket：figure-photos（公開讀取、匿名只能上傳到自己剛建立的投稿路徑）
 --   4. RLS：玩家只能讀 games / figures；投稿紀錄只有管理員能讀；所有寫入都走 RPC
---   5. RPC：create_submission / mark_submission_failed / submit_figure_found（玩家）
+--   5. RPC：start_submission / mark_submission_failed / submit_figure_found（玩家）
 --           is_admin / is_admin_email / review_submission（後台）
 --   6. Realtime：figures、submissions
 --   7. seed：camp-hide-and-seek + 8 個小人
@@ -37,6 +37,7 @@ create table if not exists public.figures (
   found_at      timestamptz,
   photo_path    text,
   submission_id uuid,
+  found_by_name text,
   is_verified   boolean not null default false,
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now(),
@@ -52,6 +53,7 @@ create table if not exists public.submissions (
   figure_id     uuid not null references public.figures(id) on delete cascade,
   figure_number integer not null,
   player_id     text not null check (char_length(player_id) between 1 and 32),
+  player_name   text check (player_name is null or char_length(player_name) between 1 and 20),
   photo_path    text not null unique,
   photo_bytes   integer check (photo_bytes is null or photo_bytes between 0 and 10485760),
   upload_status text not null default 'uploading'
@@ -73,6 +75,11 @@ begin
       foreign key (submission_id) references public.submissions(id) on delete set null;
   end if;
 end $$;
+
+-- 舊版資料庫升級：補上玩家名稱欄位
+alter table public.submissions add column if not exists player_name text
+  check (player_name is null or char_length(player_name) between 1 and 20);
+alter table public.figures add column if not exists found_by_name text;
 
 -- 後台管理員白名單（Email 小寫）
 create table if not exists public.admin_users (
@@ -207,10 +214,11 @@ create policy "players upload pending submission photo" on storage.objects
 -- ---------------------------------------------------------------------
 
 -- Step 1：建立投稿，取得照片上傳路徑
-create or replace function public.create_submission(
+create or replace function public.start_submission(
   p_game_slug     text,
   p_figure_number integer,
   p_player_id     text,
+  p_player_name   text,
   p_photo_bytes   integer default null
 )
 returns jsonb
@@ -225,6 +233,7 @@ declare
   v_id     uuid := gen_random_uuid();
   v_path   text;
   v_recent integer;
+  v_name   text := nullif(left(regexp_replace(trim(coalesce(p_player_name, '')), '[[:cntrl:]]', '', 'g'), 20), '');
 begin
   select * into v_game from public.games where slug = p_game_slug;
   if not found then
@@ -249,8 +258,8 @@ begin
 
   v_path := format('games/%s/%s/%s.jpg', v_game.slug, v_figure.number, v_id);
 
-  insert into public.submissions (id, game_id, figure_id, figure_number, player_id, photo_path, photo_bytes)
-  values (v_id, v_game.id, v_figure.id, v_figure.number, p_player_id, v_path, p_photo_bytes);
+  insert into public.submissions (id, game_id, figure_id, figure_number, player_id, player_name, photo_path, photo_bytes)
+  values (v_id, v_game.id, v_figure.id, v_figure.number, p_player_id, v_name, v_path, p_photo_bytes);
 
   return jsonb_build_object(
     'submission_id', v_id,
@@ -328,6 +337,7 @@ begin
          found_at      = now(),
          photo_path    = v_sub.photo_path,
          submission_id = v_sub.id,
+         found_by_name = v_sub.player_name,
          is_verified   = false
    where id = v_sub.figure_id
      and is_found = false
@@ -398,7 +408,8 @@ begin
     update public.figures set is_verified = true where id = v_sub.figure_id and submission_id = v_sub.id;
   else
     update public.figures
-       set is_found = false, found_at = null, photo_path = null, submission_id = null, is_verified = false
+       set is_found = false, found_at = null, photo_path = null, submission_id = null,
+           found_by_name = null, is_verified = false
      where id = v_sub.figure_id and submission_id = v_sub.id;
   end if;
 
@@ -420,7 +431,7 @@ $$;
 revoke all on function public.is_admin()                                      from public, anon, authenticated;
 revoke all on function public.is_admin_email(text)                            from public, anon, authenticated;
 revoke all on function public.can_upload_photo(text)                          from public, anon, authenticated;
-revoke all on function public.create_submission(text, integer, text, integer) from public, anon, authenticated;
+revoke all on function public.start_submission(text, integer, text, text, integer) from public, anon, authenticated;
 revoke all on function public.mark_submission_failed(uuid, text)              from public, anon, authenticated;
 revoke all on function public.submit_figure_found(uuid)                       from public, anon, authenticated;
 revoke all on function public.review_submission(uuid, text)                   from public, anon, authenticated;
@@ -429,7 +440,7 @@ revoke all on function public.set_updated_at()                                fr
 grant execute on function public.is_admin()                                      to anon, authenticated;
 grant execute on function public.is_admin_email(text)                            to anon, authenticated;
 grant execute on function public.can_upload_photo(text)                          to anon, authenticated;
-grant execute on function public.create_submission(text, integer, text, integer) to anon, authenticated;
+grant execute on function public.start_submission(text, integer, text, text, integer) to anon, authenticated;
 grant execute on function public.mark_submission_failed(uuid, text)              to anon, authenticated;
 grant execute on function public.submit_figure_found(uuid)                       to anon, authenticated;
 grant execute on function public.review_submission(uuid, text)                   to authenticated;

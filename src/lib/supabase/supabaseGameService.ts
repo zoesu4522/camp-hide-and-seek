@@ -2,7 +2,7 @@
  * Supabase 版 GameService（Phase 5–6）。
  *
  * 點亮流程：
- *   rpc create_submission → Storage 上傳照片（只能傳到該投稿路徑）
+ *   rpc start_submission → Storage 上傳照片（只能傳到該投稿路徑）
  *     ├ 失敗 → rpc mark_submission_failed（後台看得到失敗原因）
  *     └ 成功 → rpc submit_figure_found（只更新 is_found = false 的 row）
  * Realtime：訂閱 figures UPDATE（filter game_id）。
@@ -44,14 +44,15 @@ export const supabaseGameService: GameService = {
     return { game, figures: await fetchFigures(game.id) };
   },
 
-  async submitFind(slug, { figureNumber, photo, playerId, onProgress }): Promise<MarkFoundResult> {
+  async submitFind(slug, { figureNumber, photo, playerId, playerName, onProgress }): Promise<MarkFoundResult> {
     const sb = getSupabase();
 
     onProgress?.(0.05);
-    const created = await sb.rpc("create_submission", {
+    const created = await sb.rpc("start_submission", {
       p_game_slug: slug,
       p_figure_number: figureNumber,
       p_player_id: playerId,
+      p_player_name: playerName,
       p_photo_bytes: photo.size,
     });
     if (created.error) return { status: "error", error: "unknown" };

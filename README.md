@@ -12,7 +12,7 @@
 | 2 | 所有動畫（Opening / 翻牌 / 通知 / 完成 / 背景微動畫）| ✅ |
 | 2.5 | 拍照上傳點亮（必填）、照片檢視、後台 /admin（Email 登入、上傳紀錄、確認 / 退回）| ✅ mock |
 | 3–4 | Supabase schema、Storage、RLS、RPC（`supabase/schema.sql`，本機 36 項 SQL 測試通過）| ✅ |
-| 5–6 | 前端串 Supabase（RPC + Storage + Realtime + 斷線補資料），設定環境變數即切換 | ✅ 待實機驗證 |
+| 5–6 | 前端串 Supabase（RPC + Storage + Realtime + 斷線補資料），設定環境變數即切換 | ✅ 已在正式環境驗證 |
 | 7–9 | Completion 串真實資料、錯誤處理、回歸測試 | ⏳ |
 
 **資料來源自動切換**（`src/lib/services.ts`）：
@@ -36,6 +36,13 @@ npm run build
 - 後台 `/admin`：Email magic link 登入（Supabase Auth），可看每一筆上傳是否成功（成功 / 失敗 + 原因 / 上傳中）、
   8 個小人目前狀態，對照片按「確認正確」或「退回」。退回後該小人變回未找到，所有玩家即時同步
 - 規則：上傳即點亮，後台可退回；兩人同時上傳同一隻，後到的紀錄為「重複」
+
+## 目前部署
+
+- 正式網址：https://camp-hide-and-seek.vercel.app （後台 /admin）
+- Vercel 專案：camp-hide-and-seek（環境變數已設定 `NEXT_PUBLIC_SUPABASE_URL`、`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`）
+- Supabase 專案：camp-hide-and-seek（ap-northeast-1 東京，ref `lztuhwkpcpihvqibahze`），schema 已套用
+- 目前未連 GitHub：之後可在 Vercel 專案 Settings → Git 連結 repo，就會每次 push 自動部署
 
 ## Supabase 設定
 

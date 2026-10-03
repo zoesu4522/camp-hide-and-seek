@@ -89,7 +89,7 @@ def main():
         check("anon 不能直接 insert submissions", ok, msg)
 
         # ---------- 正常流程 ----------
-        sub = rpc(cur, "create_submission", "camp-hide-and-seek", 2, "P1AB", 120000)
+        sub = rpc(cur, "start_submission", "camp-hide-and-seek", 2, "P1AB", "小明", 120000)
         path = sub["photo_path"]
         check("create_submission 回傳路徑", path.startswith("games/camp-hide-and-seek/2/") and path.endswith(".jpg"), path)
         cur.execute("select count(*) from public.submissions")
@@ -107,6 +107,7 @@ def main():
 
         res = rpc(cur, "submit_figure_found", sub["submission_id"])
         check("submit_figure_found 成功點亮", res["status"] == "success" and res["found_count"] == 1, json.dumps(res)[:120])
+        check("點亮記錄玩家名稱", res["figure"]["found_by_name"] == "小明")
         res2 = rpc(cur, "submit_figure_found", sub["submission_id"])
         check("重送同一筆是 idempotent", res2["status"] == "success" and res2["found_count"] == 1)
 
@@ -116,21 +117,21 @@ def main():
         check("已完成的投稿不能再上傳其他檔", ok, msg)
 
         # 第二位玩家找同一隻 → duplicate
-        sub_b = rpc(cur, "create_submission", "camp-hide-and-seek", 2, "P2CD", 100000)
+        sub_b = rpc(cur, "start_submission", "camp-hide-and-seek", 2, "P2CD", None, 100000)
         check("建立時告知已被找到", sub_b["already_found"] is True)
         upload(cur, sub_b["photo_path"])
         res = rpc(cur, "submit_figure_found", sub_b["submission_id"])
         check("同一隻第二人 → already_found", res["status"] == "already_found" and res["found_count"] == 1)
 
         # 上傳失敗
-        sub_f = rpc(cur, "create_submission", "camp-hide-and-seek", 4, "P3EF", 90000)
+        sub_f = rpc(cur, "start_submission", "camp-hide-and-seek", 4, "P3EF", None, 90000)
         rpc(cur, "mark_submission_failed", sub_f["submission_id"], "network lost")
         ok, msg = expect_error(cur, "select public.submit_figure_found(%s)", (sub_f["submission_id"],), "submission_not_uploading")
         check("失敗的投稿不能點亮", ok, msg)
 
-        ok, msg = expect_error(cur, "select public.create_submission('camp-hide-and-seek', 3, 'bad id!', null)", contains="invalid_player_id")
+        ok, msg = expect_error(cur, "select public.start_submission('camp-hide-and-seek', 3, 'bad id!', null, null)", contains="invalid_player_id")
         check("player_id 格式檢查", ok, msg)
-        ok, msg = expect_error(cur, "select public.create_submission('camp-hide-and-seek', 9, 'P1AB', null)", contains="figure_not_found")
+        ok, msg = expect_error(cur, "select public.start_submission('camp-hide-and-seek', 9, 'P1AB', null, null)", contains="figure_not_found")
         check("不存在的小人編號", ok, msg)
 
         # ---------- 後台權限 ----------
@@ -163,7 +164,7 @@ def main():
 
         # 退回流程：#5
         as_role(cur, "anon")
-        s5 = rpc(cur, "create_submission", "camp-hide-and-seek", 5, "P1AB", 1)
+        s5 = rpc(cur, "start_submission", "camp-hide-and-seek", 5, "P1AB", None, 1)
         upload(cur, s5["photo_path"])
         rpc(cur, "submit_figure_found", s5["submission_id"])
         as_role(cur, "authenticated", ADMIN)
@@ -178,7 +179,7 @@ def main():
         as_role(cur, "anon")
         last = None
         for n in [1, 3, 4, 5, 6, 7, 8]:
-            s = rpc(cur, "create_submission", "camp-hide-and-seek", n, f"PL{n}", 1)
+            s = rpc(cur, "start_submission", "camp-hide-and-seek", n, f"PL{n}", None, 1)
             upload(cur, s["photo_path"])
             last = (s, rpc(cur, "submit_figure_found", s["submission_id"]))
         cur.execute("select is_completed from public.games")
@@ -193,7 +194,7 @@ def main():
         hit = False
         for i in range(12):
             try:
-                rpc(cur, "create_submission", "camp-hide-and-seek", 8, "SPAM", 1)
+                rpc(cur, "start_submission", "camp-hide-and-seek", 8, "SPAM", None, 1)
             except psycopg.Error as e:
                 hit = "rate_limited" in str(e)
                 break
@@ -206,8 +207,8 @@ def main():
     with connect() as c:
         cur = c.cursor()
         as_role(cur, "anon")
-        a = rpc(cur, "create_submission", "camp-hide-and-seek", 8, "RACEA", 1)
-        b = rpc(cur, "create_submission", "camp-hide-and-seek", 8, "RACEB", 1)
+        a = rpc(cur, "start_submission", "camp-hide-and-seek", 8, "RACEA", None, 1)
+        b = rpc(cur, "start_submission", "camp-hide-and-seek", 8, "RACEB", None, 1)
         upload(cur, a["photo_path"])
         upload(cur, b["photo_path"])
 
