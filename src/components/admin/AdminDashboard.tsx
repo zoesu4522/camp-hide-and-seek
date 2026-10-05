@@ -171,7 +171,7 @@ export default function AdminDashboard({ service, session, onSignOut }: Props) {
           <button
             type="button"
             onClick={onSignOut}
-            className="min-h-10 rounded-lg border border-white/15 px-3 text-cream/85 hover:bg-white/5"
+            className="min-h-10 rounded-lg border border-white/15 px-3 text-cream/85 hover:bg-white/5 transition-[transform,box-shadow,background-color] duration-150 ease-out hover:-translate-y-0.5 hover:shadow-[0_6px_14px_rgba(0,0,0,0.3)] active:translate-y-0 active:scale-95"
           >
             登出
           </button>
@@ -258,7 +258,7 @@ export default function AdminDashboard({ service, session, onSignOut }: Props) {
                   type="button"
                   disabled={bulkBusy}
                   onClick={removeAll}
-                  className="min-h-10 rounded-lg bg-[#d9633a] px-3 text-[14px] text-white disabled:opacity-50"
+                  className="min-h-10 rounded-lg bg-[#d9633a] px-3 text-[14px] text-white transition-[transform,box-shadow,background-color] duration-150 ease-out hover:-translate-y-0.5 hover:shadow-[0_6px_14px_rgba(0,0,0,0.3)] active:translate-y-0 active:scale-95 disabled:pointer-events-none"
                 >
                   {bulkBusy ? "刪除中…" : "確定清除"}
                 </button>
@@ -275,7 +275,7 @@ export default function AdminDashboard({ service, session, onSignOut }: Props) {
               <button
                 type="button"
                 onClick={() => setConfirmBulk(true)}
-                className="min-h-10 rounded-lg border border-white/15 px-3 text-[14px] text-cream/80 hover:bg-white/5"
+                className="min-h-10 rounded-lg border border-white/15 px-3 text-[14px] text-cream/80 hover:bg-white/5 transition-[transform,box-shadow,background-color] duration-150 ease-out hover:-translate-y-0.5 hover:shadow-[0_6px_14px_rgba(0,0,0,0.3)] active:translate-y-0 active:scale-95"
               >
                 🧹 清除已退回／失敗／重複（{deletable.length}）
               </button>
@@ -292,7 +292,7 @@ export default function AdminDashboard({ service, session, onSignOut }: Props) {
                 role="tab"
                 aria-selected={active}
                 onClick={() => setFilter(f.key)}
-                className={`min-h-10 shrink-0 rounded-full px-3.5 text-[14px] ${
+                className={`min-h-10 shrink-0 rounded-full px-3.5 text-[14px] transition-[transform,box-shadow,background-color] duration-150 ease-out hover:-translate-y-0.5 hover:shadow-[0_6px_14px_rgba(0,0,0,0.3)] active:translate-y-0 active:scale-95 ${
                   active ? "bg-ember text-ink" : "border border-white/15 text-cream/80"
                 }`}
               >
@@ -373,7 +373,7 @@ export default function AdminDashboard({ service, session, onSignOut }: Props) {
                         type="button"
                         disabled={busy}
                         onClick={() => review(s, "approve")}
-                        className="min-h-10 rounded-lg bg-forest px-3.5 text-[14px] text-white disabled:opacity-50"
+                        className="min-h-10 rounded-lg bg-forest px-3.5 text-[14px] text-white transition-[transform,box-shadow,background-color] duration-150 ease-out hover:-translate-y-0.5 hover:shadow-[0_6px_14px_rgba(0,0,0,0.3)] active:translate-y-0 active:scale-95 disabled:pointer-events-none"
                       >
                         ✓ 確認正確
                       </button>
@@ -381,7 +381,7 @@ export default function AdminDashboard({ service, session, onSignOut }: Props) {
                         type="button"
                         disabled={busy}
                         onClick={() => setConfirmRejectId(s.id)}
-                        className="min-h-10 rounded-lg border border-[#e8794a]/60 px-3.5 text-[14px] text-[#ffab88] disabled:opacity-50"
+                        className="min-h-10 rounded-lg border border-[#e8794a]/60 px-3.5 text-[14px] text-[#ffab88] transition-[transform,box-shadow,background-color] duration-150 ease-out hover:-translate-y-0.5 hover:shadow-[0_6px_14px_rgba(0,0,0,0.3)] active:translate-y-0 active:scale-95 disabled:pointer-events-none"
                       >
                         退回
                       </button>
@@ -393,7 +393,7 @@ export default function AdminDashboard({ service, session, onSignOut }: Props) {
                       disabled={busy}
                       onClick={() => setConfirmDeleteId(s.id)}
                       aria-label={`刪除 #${s.figureNumber} 這筆紀錄`}
-                      className="mt-2 min-h-9 rounded-lg border border-white/15 px-3 text-[13.5px] text-cream/70 hover:bg-white/5 disabled:opacity-50"
+                      className="mt-2 min-h-9 rounded-lg border border-white/15 px-3 text-[13.5px] text-cream/70 hover:bg-white/5 transition-[transform,box-shadow,background-color] duration-150 ease-out hover:-translate-y-0.5 hover:shadow-[0_6px_14px_rgba(0,0,0,0.3)] active:translate-y-0 active:scale-95 disabled:pointer-events-none"
                     >
                       🗑 刪除
                     </button>
@@ -405,7 +405,7 @@ export default function AdminDashboard({ service, session, onSignOut }: Props) {
                         type="button"
                         disabled={busy}
                         onClick={() => removeOne(s)}
-                        className="min-h-9 rounded-lg bg-[#d9633a] px-3 text-[13.5px] text-white disabled:opacity-50"
+                        className="min-h-9 rounded-lg bg-[#d9633a] px-3 text-[13.5px] text-white transition-[transform,box-shadow,background-color] duration-150 ease-out hover:-translate-y-0.5 hover:shadow-[0_6px_14px_rgba(0,0,0,0.3)] active:translate-y-0 active:scale-95 disabled:pointer-events-none"
                       >
                         {busy ? "刪除中…" : "確定刪除"}
                       </button>
@@ -429,7 +429,7 @@ export default function AdminDashboard({ service, session, onSignOut }: Props) {
                           type="button"
                           disabled={busy}
                           onClick={() => review(s, "reject")}
-                          className="min-h-10 rounded-lg bg-[#d9633a] px-3.5 text-[14px] text-white disabled:opacity-50"
+                          className="min-h-10 rounded-lg bg-[#d9633a] px-3.5 text-[14px] text-white transition-[transform,box-shadow,background-color] duration-150 ease-out hover:-translate-y-0.5 hover:shadow-[0_6px_14px_rgba(0,0,0,0.3)] active:translate-y-0 active:scale-95 disabled:pointer-events-none"
                         >
                           {busy ? "處理中…" : "確定退回"}
                         </button>
