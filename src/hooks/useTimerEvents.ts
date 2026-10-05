@@ -34,6 +34,8 @@ export function useTimerEvents({ timer, view, ready, notify }: Options) {
   const [endOpen, setEndOpen] = useState(false);
 
   const prev = useRef<{ phase: TimerPhase; sec: number; timer: GameTimer } | null>(null);
+  /** 已經播過結束動畫的那一輪（startedAt 當識別），同一輪只播一次 */
+  const endedRound = useRef<string | null>(null);
   const nowRef = useRef(view.now);
   useEffect(() => {
     nowRef.current = view.now;
@@ -54,7 +56,10 @@ export function useTimerEvents({ timer, view, ready, notify }: Options) {
     if (!p) {
       if (ENDED.includes(view.phase)) {
         const endAt = new Date(timer.endedAt ?? timer.endsAt ?? 0).getTime();
-        if (nowRef.current - endAt < LATE_END_WINDOW_MS) later(() => setEndOpen(true));
+        if (nowRef.current - endAt < LATE_END_WINDOW_MS) {
+          endedRound.current = timer.startedAt;
+          later(() => setEndOpen(true));
+        }
       }
       return;
     }
@@ -69,7 +74,8 @@ export function useTimerEvents({ timer, view, ready, notify }: Options) {
     if (view.phase === "running" && p.phase === "running" && sec !== p.sec && sec <= FINAL_COUNT_S && sec >= 1) sfx.tick(sec);
 
     // 時間到 / 管理員結束
-    if (ENDED.includes(view.phase) && !ENDED.includes(p.phase)) {
+    if (ENDED.includes(view.phase) && !ENDED.includes(p.phase) && endedRound.current !== timer.startedAt) {
+      endedRound.current = timer.startedAt;
       sfx.timeUp();
       later(() => setEndOpen(true));
     }

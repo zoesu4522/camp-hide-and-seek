@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, animate, motion, useReducedMotion } from "framer-motion";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import CampFigure from "../illustrations/CampFigure";
 import { FINAL_COUNT_S, type TimerView } from "@/lib/timer";
 import type { GameTimer } from "@/types/game";
@@ -250,16 +250,13 @@ function EndOverlay({
   const reduce = useReducedMotion();
   const ctaRef = useRef<HTMLButtonElement>(null);
   const title = reason === "timeup" ? ["時", "間", "到", "！"] : ["遊", "戲", "結", "束"];
-  const [shakeKey, setShakeKey] = useState(0);
 
   useEffect(() => {
     if (!open) return;
-    const t1 = window.setTimeout(() => setShakeKey((k) => k + 1), 650);
     const t2 = window.setTimeout(() => ctaRef.current?.focus(), 1800);
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
     return () => {
-      window.clearTimeout(t1);
       window.clearTimeout(t2);
       window.removeEventListener("keydown", onKey);
     };
@@ -294,10 +291,10 @@ function EndOverlay({
           />
 
           <motion.div
-            key={shakeKey}
             className="relative flex w-full max-w-[380px] flex-col items-center text-center"
-            animate={reduce || shakeKey === 0 ? {} : { x: [0, -14, 12, -8, 6, -3, 0] }}
-            transition={{ duration: 0.5 }}
+            // 字掉下來後震一下（同一個元素，不重新掛載，動畫只播一次）
+            animate={reduce ? undefined : { x: [0, -14, 12, -8, 6, -3, 0] }}
+            transition={{ duration: 0.5, delay: 0.65 }}
           >
             {/* 沙漏 */}
             <motion.div
