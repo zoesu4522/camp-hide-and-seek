@@ -6,7 +6,7 @@
  */
 import type { AdminService, AdminSession } from "@/types/game";
 import { GAME_SLUG } from "@/types/game";
-import { getSupabase, measureClockOffset } from "./client";
+import { getSupabase, measureClockOffset, PHOTO_BUCKET } from "./client";
 import {
   FIGURE_COLUMNS,
   GAME_COLUMNS,
@@ -89,6 +89,20 @@ export const supabaseAdminService: AdminService = {
       p_action: action,
     });
     return { ok: !error && Boolean((data as { ok?: boolean } | null)?.ok) };
+  },
+
+  async deleteSubmissions(ids) {
+    if (ids.length === 0) return { ok: true, deleted: 0 };
+    const sb = getSupabase();
+    const { data, error } = await sb.rpc("admin_delete_submissions", { p_submission_ids: ids });
+    if (error) return { ok: false, deleted: 0 };
+    const res = data as { deleted: number; photo_paths: string[] };
+    // 紀錄刪掉後再刪照片檔（失敗也不影響畫面，只是 Storage 留檔）
+    const paths = res.photo_paths ?? [];
+    for (let i = 0; i < paths.length; i += 100) {
+      await sb.storage.from(PHOTO_BUCKET).remove(paths.slice(i, i + 100));
+    }
+    return { ok: true, deleted: res.deleted };
   },
 
   async controlTimer(action, seconds) {

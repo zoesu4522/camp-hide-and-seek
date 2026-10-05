@@ -149,6 +149,15 @@ export interface AdminService {
   controlTimer(action: TimerAction, seconds?: number): Promise<{ ok: boolean }>;
   getClockOffset(): Promise<number>;
   reviewSubmission(submissionId: string, action: "approve" | "reject", reviewer: string): Promise<{ ok: boolean }>;
+  /** 刪除投稿紀錄與照片（只會刪掉 isDeletable 的） */
+  deleteSubmissions(submissionIds: string[]): Promise<{ ok: boolean; deleted: number }>;
   /** 任何投稿或小人狀態變更時呼叫 */
   subscribe(onChange: () => void): () => void;
+}
+
+/** 可以刪除的投稿：沒有點亮小人（已退回 / 重複 / 上傳失敗 / 卡在上傳中超過 10 分鐘）。和 admin_delete_submissions 相同規則 */
+export function isDeletable(s: Submission, now = Date.now()): boolean {
+  if (s.reviewStatus === "rejected" || s.reviewStatus === "duplicate") return true;
+  if (s.uploadStatus === "failed") return true;
+  return s.uploadStatus === "uploading" && now - new Date(s.createdAt).getTime() > 10 * 60 * 1000;
 }

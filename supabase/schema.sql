@@ -10,7 +10,7 @@
 --   3. Storage bucket：figure-photos（公開讀取、匿名只能上傳到自己剛建立的投稿路徑）
 --   4. RLS：玩家只能讀 games / figures；投稿紀錄只有管理員能讀；所有寫入都走 RPC
 --   5. RPC：start_submission / mark_submission_failed / submit_figure_found（玩家）
---           is_admin / is_admin_email / review_submission（後台）
+--           is_admin / is_admin_email / review_submission / admin_delete_submissions（後台）
 --   6. Realtime：games（倒數計時）、figures、submissions
 --   8. 倒數計時：admin_timer（後台控制）/ server_now（校正玩家手機時間）
 --   7. seed：camp-hide-and-seek + 8 個小人
@@ -224,6 +224,17 @@ drop policy if exists "players upload pending submission photo" on storage.objec
 create policy "players upload pending submission photo" on storage.objects
   for insert to anon, authenticated
   with check (bucket_id = 'figure-photos' and public.can_upload_photo(name));
+
+-- 管理員可以刪除照片（後台清除測試 / 退回的投稿）；Storage API 刪除時需要 select + delete
+drop policy if exists "admins read photo objects" on storage.objects;
+create policy "admins read photo objects" on storage.objects
+  for select to authenticated
+  using (bucket_id = 'figure-photos' and public.is_admin());
+
+drop policy if exists "admins delete photo objects" on storage.objects;
+create policy "admins delete photo objects" on storage.objects
+  for delete to authenticated
+  using (bucket_id = 'figure-photos' and public.is_admin());
 
 -- ---------------------------------------------------------------------
 -- 6. RPC：玩家
@@ -463,6 +474,42 @@ end;
 $$;
 
 
+-- 刪除投稿紀錄（只能刪「沒有點亮小人」的：已退回 / 上傳失敗 / 重複 / 卡住超過 10 分鐘的上傳中）
+-- 回傳被刪掉的照片路徑，前端再用 Storage API 刪檔
+create or replace function public.admin_delete_submissions(p_submission_ids uuid[])
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path = ''
+as $$
+declare
+  v_paths text[];
+  v_count integer;
+begin
+  if not public.is_admin() then
+    raise exception 'not_admin' using errcode = '42501';
+  end if;
+
+  with deleted as (
+    delete from public.submissions s
+     where s.id = any(p_submission_ids)
+       and not exists (select 1 from public.figures f where f.submission_id = s.id)
+       and (
+         s.review_status in ('rejected', 'duplicate')
+         or s.upload_status = 'failed'
+         or (s.upload_status = 'uploading' and s.created_at < now() - interval '10 minutes')
+       )
+    returning s.photo_path, s.upload_status
+  )
+  select coalesce(array_agg(photo_path) filter (where upload_status = 'uploaded'), '{}'), count(*)
+    into v_paths, v_count
+    from deleted;
+
+  return jsonb_build_object('ok', true, 'deleted', v_count, 'photo_paths', to_jsonb(v_paths));
+end;
+$$;
+
 -- ---------------------------------------------------------------------
 -- 7b. 倒數計時
 -- ---------------------------------------------------------------------
@@ -601,6 +648,7 @@ revoke all on function public.submit_figure_found(uuid)                       fr
 revoke all on function public.review_submission(uuid, text)                   from public, anon, authenticated;
 revoke all on function public.set_updated_at()                                from public, anon, authenticated;
 revoke all on function public.server_now()                                    from public, anon, authenticated;
+revoke all on function public.admin_delete_submissions(uuid[])                from public, anon, authenticated;
 revoke all on function public.admin_timer(text, integer, text)                from public, anon, authenticated;
 
 grant execute on function public.is_admin()                                      to anon, authenticated;
@@ -611,6 +659,7 @@ grant execute on function public.mark_submission_failed(uuid, text)             
 grant execute on function public.submit_figure_found(uuid)                       to anon, authenticated;
 grant execute on function public.review_submission(uuid, text)                   to authenticated;
 grant execute on function public.server_now()                                    to anon, authenticated;
+grant execute on function public.admin_delete_submissions(uuid[])                to authenticated;
 grant execute on function public.admin_timer(text, integer, text)                to authenticated;
 
 -- ---------------------------------------------------------------------

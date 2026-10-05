@@ -6,6 +6,7 @@ import {
   TOTAL_FIGURES,
   type AdminService,
   type AdminSession,
+  isDeletable,
   type Figure,
   type Game,
   type ReviewStatus,
@@ -59,6 +60,10 @@ export default function AdminDashboard({ service, session, onSignOut }: Props) {
   const [filter, setFilter] = useState<Filter>("all");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmRejectId, setConfirmRejectId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [confirmBulk, setConfirmBulk] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [doneMsg, setDoneMsg] = useState<string | null>(null);
   const [viewing, setViewing] = useState<PhotoViewerItem | null>(null);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
@@ -111,6 +116,36 @@ export default function AdminDashboard({ service, session, onSignOut }: Props) {
     setConfirmRejectId(null);
     load();
   };
+
+  const deletable = useMemo(() => submissions.filter((s) => isDeletable(s)), [submissions]);
+
+  const remove = async (ids: string[]) => {
+    setActionError(null);
+    const res = await service.deleteSubmissions(ids).catch(() => ({ ok: false, deleted: 0 }));
+    if (!res.ok) setActionError("刪除沒有成功，請再試一次。");
+    else setDoneMsg(`已刪除 ${res.deleted} 筆紀錄與照片`);
+    load();
+  };
+
+  const removeOne = async (s: Submission) => {
+    setBusyId(s.id);
+    await remove([s.id]);
+    setBusyId(null);
+    setConfirmDeleteId(null);
+  };
+
+  const removeAll = async () => {
+    setBulkBusy(true);
+    await remove(deletable.map((s) => s.id));
+    setBulkBusy(false);
+    setConfirmBulk(false);
+  };
+
+  useEffect(() => {
+    if (!doneMsg) return;
+    const t = window.setTimeout(() => setDoneMsg(null), 3000);
+    return () => window.clearTimeout(t);
+  }, [doneMsg]);
 
   const view = (url: string, number: number, subtitle: string) =>
     setViewing({ key: url.slice(-32) + number, url, title: `#${number} 小人照片`, subtitle });
@@ -215,6 +250,36 @@ export default function AdminDashboard({ service, session, onSignOut }: Props) {
           <h2 id="sub-title" className="text-[17px]">
             上傳紀錄 <span className="text-[14px] text-cream/50">（{submissions.length}）</span>
           </h2>
+          {deletable.length > 0 &&
+            (confirmBulk ? (
+              <div className="flex items-center gap-2" role="alertdialog" aria-label="確認清除">
+                <span className="text-[13px] text-[#ffcbb5]">刪除 {deletable.length} 筆紀錄和照片，無法復原</span>
+                <button
+                  type="button"
+                  disabled={bulkBusy}
+                  onClick={removeAll}
+                  className="min-h-10 rounded-lg bg-[#d9633a] px-3 text-[14px] text-white disabled:opacity-50"
+                >
+                  {bulkBusy ? "刪除中…" : "確定清除"}
+                </button>
+                <button
+                  type="button"
+                  disabled={bulkBusy}
+                  onClick={() => setConfirmBulk(false)}
+                  className="min-h-10 rounded-lg border border-white/15 px-3 text-[14px] text-cream/80"
+                >
+                  取消
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setConfirmBulk(true)}
+                className="min-h-10 rounded-lg border border-white/15 px-3 text-[14px] text-cream/80 hover:bg-white/5"
+              >
+                🧹 清除已退回／失敗／重複（{deletable.length}）
+              </button>
+            ))}
         </div>
         <div className="no-scrollbar -mx-4 mt-2.5 flex gap-2 overflow-x-auto px-4" role="tablist" aria-label="篩選">
           {FILTERS.map((f) => {
@@ -237,6 +302,12 @@ export default function AdminDashboard({ service, session, onSignOut }: Props) {
           })}
         </div>
 
+        {doneMsg && (
+          <p className="mt-3 rounded-xl bg-forest/20 px-3 py-2 text-[14px] text-[#b9f0c2]" role="status">
+            {doneMsg}
+          </p>
+        )}
+
         {actionError && (
           <p className="mt-3 rounded-xl bg-[#2a1610] px-3 py-2 text-[14px] text-[#ffcbb5]" role="alert">
             {actionError}
@@ -255,6 +326,8 @@ export default function AdminDashboard({ service, session, onSignOut }: Props) {
             const canReview = s.uploadStatus === "uploaded" && s.reviewStatus === "active";
             const busy = busyId === s.id;
             const confirming = confirmRejectId === s.id;
+            const canDelete = isDeletable(s);
+            const confirmingDelete = confirmDeleteId === s.id;
             return (
               <li key={s.id} className="flex gap-3 rounded-2xl border border-white/10 bg-[#0f2236] p-3">
                 <button
@@ -311,6 +384,38 @@ export default function AdminDashboard({ service, session, onSignOut }: Props) {
                         className="min-h-10 rounded-lg border border-[#e8794a]/60 px-3.5 text-[14px] text-[#ffab88] disabled:opacity-50"
                       >
                         退回
+                      </button>
+                    </div>
+                  )}
+                  {canDelete && !confirmingDelete && (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => setConfirmDeleteId(s.id)}
+                      aria-label={`刪除 #${s.figureNumber} 這筆紀錄`}
+                      className="mt-2 min-h-9 rounded-lg border border-white/15 px-3 text-[13.5px] text-cream/70 hover:bg-white/5 disabled:opacity-50"
+                    >
+                      🗑 刪除
+                    </button>
+                  )}
+                  {canDelete && confirmingDelete && (
+                    <div className="mt-2 flex flex-wrap items-center gap-2" role="alertdialog" aria-label="確認刪除">
+                      <span className="text-[13px] text-[#ffcbb5]">紀錄和照片會一起刪除</span>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => removeOne(s)}
+                        className="min-h-9 rounded-lg bg-[#d9633a] px-3 text-[13.5px] text-white disabled:opacity-50"
+                      >
+                        {busy ? "刪除中…" : "確定刪除"}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => setConfirmDeleteId(null)}
+                        className="min-h-9 rounded-lg border border-white/15 px-3 text-[13.5px] text-cream/80"
+                      >
+                        取消
                       </button>
                     </div>
                   )}

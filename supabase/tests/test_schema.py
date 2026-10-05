@@ -316,6 +316,50 @@ def main():
         rpc(cur, "start_submission", "camp-hide-and-seek", 1, "AFTER", None, 1)
         check("提前完成後仍可建立投稿（例如照片被退回後重找）", True)
 
+    # ---------- 刪除投稿 ----------
+    with connect() as c:
+        cur = c.cursor()
+        cur.execute("update public.figures set is_found=false, found_at=null, photo_path=null, submission_id=null, found_by_name=null, is_verified=false")
+        cur.execute("update public.games set timer_status='idle', timer_ends_at=null, timer_started_at=null, timer_end_reason=null")
+        cur.execute("delete from public.submissions")
+        as_role(cur, "anon")
+        ids = {}
+        for key, n in [("active", 1), ("dup", 1), ("rej", 2), ("fail", 3), ("stuck", 4), ("fresh", 5)]:
+            sub = rpc(cur, "start_submission", "camp-hide-and-seek", n, "DEL" + key[:3].upper(), None, 1)
+            ids[key] = sub
+            if key in ("active", "dup", "rej"):
+                upload(cur, sub["photo_path"])
+                rpc(cur, "submit_figure_found", sub["submission_id"])
+        rpc(cur, "mark_submission_failed", ids["fail"]["submission_id"], "x")
+        as_role(cur, "authenticated", ADMIN)
+        rpc(cur, "review_submission", ids["rej"]["submission_id"], "reject")
+        cur.execute("reset role")
+        cur.execute("update public.submissions set created_at = now() - interval '11 minutes' where id = %s", (ids["stuck"]["submission_id"],))
+
+        all_ids = [v["submission_id"] for v in ids.values()]
+        as_role(cur, "anon")
+        ok, msg = expect_error(cur, "select public.admin_delete_submissions(%s::uuid[])", (all_ids,), "permission denied")
+        check("anon 不能刪投稿", ok, msg)
+        as_role(cur, "authenticated", "stranger@example.com")
+        ok, msg = expect_error(cur, "select public.admin_delete_submissions(%s::uuid[])", (all_ids,), "not_admin")
+        check("非管理員不能刪投稿", ok, msg)
+        cur.execute("reset role"); cur.execute("select count(*) from storage.objects"); n_before = cur.fetchone()[0]
+        as_role(cur, "authenticated", "stranger@example.com")
+        cur.execute("delete from storage.objects where bucket_id = 'figure-photos'")
+        cur.execute("reset role"); cur.execute("select count(*) from storage.objects")
+        check("非管理員刪不到照片檔", cur.fetchone()[0] == n_before)
+
+        as_role(cur, "authenticated", ADMIN)
+        res = rpc(cur, "admin_delete_submissions", all_ids)
+        cur.execute("select player_id from public.submissions order by player_id")
+        left = [r[0] for r in cur.fetchall()]
+        check("只刪掉 退回/重複/失敗/卡住 的投稿", res["deleted"] == 4 and left == ["DELACT", "DELFRE"], f"{res} {left}")
+        check("回傳已上傳照片的路徑", sorted(res["photo_paths"]) == sorted([ids["dup"]["photo_path"], ids["rej"]["photo_path"]]), str(res["photo_paths"]))
+        cur.execute("select is_found from public.figures where number = 1")
+        check("點亮中的小人不受影響", cur.fetchone()[0] is True)
+        cur.execute("delete from storage.objects where bucket_id = 'figure-photos' and name = any(%s)", (res["photo_paths"],))
+        check("管理員可以刪照片檔", cur.rowcount == 2, str(cur.rowcount))
+
     # reset.sql
     with connect() as c:
         c.execute((ROOT / "reset.sql").read_text())

@@ -40,6 +40,6 @@ create table storage.objects (
   unique (bucket_id, name)
 );
 alter table storage.objects enable row level security;
-grant select, insert on storage.objects to anon, authenticated;
+grant select, insert, delete on storage.objects to anon, authenticated;
 
 create publication supabase_realtime;
