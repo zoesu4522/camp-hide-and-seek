@@ -8,6 +8,7 @@
  * 正式版（Phase 3）：supabase.auth.signInWithOtp + admin_users 白名單 + RLS / security definer RPC。
  */
 import type { AdminService, AdminSession, Figure, Submission } from "@/types/game";
+import { applyTimerAction } from "@/lib/timer";
 import { onDbChange, readDb, recount, wait, writeDb } from "./mockDb";
 
 const SESSION_KEY = "camp-hide-and-seek:mock-admin-session";
@@ -46,7 +47,20 @@ export const mockAdminService: AdminService = {
   async listSubmissions() {
     await wait(200);
     const db = readDb();
-    return { figures: db.figures, submissions: db.submissions };
+    return { game: db.game, figures: db.figures, submissions: db.submissions };
+  },
+
+  async controlTimer(action, seconds) {
+    await wait(150);
+    const db = readDb();
+    const next = applyTimerAction(db.game.timer, action, seconds, Date.now());
+    if (!next) return { ok: false };
+    writeDb({ ...db, game: { ...db.game, timer: next } });
+    return { ok: true };
+  },
+
+  async getClockOffset() {
+    return 0;
   },
 
   async reviewSubmission(submissionId, action, reviewer) {

@@ -3,9 +3,9 @@
  * 同一個瀏覽器的多個分頁透過 storage event 互相同步，模擬 Realtime。
  * 只用於 Phase 3 之前的本機開發 / demo。
  */
-import { TOTAL_FIGURES, type Figure, type Game, type Submission } from "@/types/game";
+import { IDLE_TIMER, TOTAL_FIGURES, type Figure, type Game, type Submission } from "@/types/game";
 
-export const DB_KEY = "camp-hide-and-seek:mock-db:v3";
+export const DB_KEY = "camp-hide-and-seek:mock-db:v4";
 const DEMO_FOUND = [1, 3, 6];
 
 export interface MockDb {
@@ -70,7 +70,7 @@ export function seedDb(foundNumbers: number[] = DEMO_FOUND): MockDb {
     };
   });
   return {
-    game: { id: gameId, slug: "camp-hide-and-seek", title: "躲貓貓小人", isCompleted: false },
+    game: { id: gameId, slug: "camp-hide-and-seek", title: "躲貓貓小人", isCompleted: false, timer: IDLE_TIMER },
     figures,
     submissions,
   };
@@ -132,5 +132,23 @@ export function hasQueryFlag(flag: string): boolean {
 
 export function recount(db: MockDb): MockDb {
   const found = db.figures.filter((f) => f.isFound).length;
-  return { ...db, game: { ...db.game, isCompleted: found === TOTAL_FIGURES } };
+  const isCompleted = found === TOTAL_FIGURES;
+  let timer = db.game.timer ?? IDLE_TIMER;
+  // 倒數中 8/8 → 提前完成（同 submit_figure_found）
+  if (isCompleted && !db.game.isCompleted) {
+    const now = Date.now();
+    const end = timer.endsAt ? new Date(timer.endsAt).getTime() : 0;
+    const start = timer.startedAt ? new Date(timer.startedAt).getTime() : 0;
+    if (timer.status === "paused" || (timer.status === "running" && end > now)) {
+      timer = {
+        ...timer,
+        status: "ended",
+        endReason: "completed",
+        endedAt: new Date(now).toISOString(),
+        remainingMs: timer.status === "paused" ? timer.remainingMs : Math.max(0, end - Math.max(now, start)),
+        version: timer.version + 1,
+      };
+    }
+  }
+  return { ...db, game: { ...db.game, isCompleted, timer } };
 }

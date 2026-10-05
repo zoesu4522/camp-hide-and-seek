@@ -75,7 +75,7 @@ def main():
         cur0 = c.execute("select count(*) from public.figures")
         check("seed 8 個小人", cur0.fetchone()[0] == 8)
         cur0 = c.execute("select count(*) from pg_publication_tables where pubname='supabase_realtime'")
-        check("realtime publication 含 figures + submissions", cur0.fetchone()[0] == 2)
+        check("realtime publication 含 games + figures + submissions", cur0.fetchone()[0] == 3)
 
         cur = c.cursor()
 
@@ -233,11 +233,96 @@ def main():
                          (a["photo_path"], b["photo_path"]))
         check("併發：輸的那筆標成 duplicate", [r[0] for r in cur0.fetchall()] == ["active", "duplicate"])
 
+    # ---------- 倒數計時 ----------
+    with connect() as c:
+        cur = c.cursor()
+        cur.execute("update public.figures set is_found=false, found_at=null, photo_path=null, submission_id=null, found_by_name=null, is_verified=false")
+        cur.execute("update public.games set is_completed=false")
+
+        def timer():
+            cur.execute("reset role")
+            cur.execute("""select timer_status, timer_end_reason, timer_remaining_ms, timer_version,
+                                  extract(epoch from timer_ends_at - now()), extract(epoch from timer_started_at - now())
+                           from public.games""")
+            return cur.fetchone()
+
+        as_role(cur, "anon")
+        check("server_now 給 anon", rpc(cur, "server_now") is not None)
+        ok, msg = expect_error(cur, "select public.admin_timer('start', 600)", contains="permission denied")
+        check("anon 不能控制倒數", ok, msg)
+        as_role(cur, "authenticated", "stranger@example.com")
+        ok, msg = expect_error(cur, "select public.admin_timer('start', 600)", contains="not_admin")
+        check("非管理員不能控制倒數", ok, msg)
+
+        as_role(cur, "authenticated", ADMIN)
+        ok, msg = expect_error(cur, "select public.admin_timer('start', 5)", contains="invalid_seconds")
+        check("倒數秒數檢查", ok, msg)
+        res = rpc(cur, "admin_timer", "start", 600)
+        t = timer()
+        check("start → running、3 秒後 GO", res["ok"] and t[0] == "running" and 2.5 < float(t[5]) <= 3.01 and 602 < float(t[4]) <= 603.01, str(t))
+        v0 = t[3]
+        rpc(cur, "admin_timer", "add", 300)
+        t = timer()
+        check("+5 分鐘", 902 < float(t[4]) <= 903.01 and t[3] == v0 + 1, str(t))
+        rpc(cur, "admin_timer", "pause")
+        t = timer()
+        check("暫停記下剩餘時間", t[0] == "paused" and t[2] == 900000, str(t))
+        check("暫停中不能再暫停", rpc(cur, "admin_timer", "pause")["ok"] is False)
+        rpc(cur, "admin_timer", "add", -60)
+        check("暫停中可以減時間", timer()[2] == 840000)
+        rpc(cur, "admin_timer", "resume")
+        t = timer()
+        check("繼續 → running", t[0] == "running" and 842 < float(t[4]) <= 843.01, str(t))
+
+        # 時間到 → 玩家不能再建立投稿
+        cur.execute("reset role")
+        cur.execute("update public.games set timer_started_at = now() - interval '20 minutes', timer_ends_at = now() - interval '10 seconds'")
+        as_role(cur, "anon")
+        ok, msg = expect_error(cur, "select public.start_submission('camp-hide-and-seek', 1, 'LATE1', null, 1)", contains="time_up")
+        check("時間到不能再回報", ok, msg)
+        as_role(cur, "authenticated", ADMIN)
+        check("時間到後不能暫停", rpc(cur, "admin_timer", "pause")["ok"] is False)
+        rpc(cur, "admin_timer", "end")
+        t = timer()
+        check("時間到後按結束 → ended/time_up", t[0] == "ended" and t[1] == "time_up", str(t))
+
+        # 管理員提前結束 → 不能回報；重置 → 可以
+        rpc(cur, "admin_timer", "start", 60)
+        rpc(cur, "admin_timer", "end")
+        t = timer()
+        check("手動結束 → ended/manual", t[0] == "ended" and t[1] == "manual" and t[2] == 60000, str(t))
+        as_role(cur, "anon")
+        ok, msg = expect_error(cur, "select public.start_submission('camp-hide-and-seek', 1, 'LATE2', null, 1)", contains="time_up")
+        check("手動結束後不能回報", ok, msg)
+        as_role(cur, "authenticated", ADMIN)
+        rpc(cur, "admin_timer", "reset")
+        t = timer()
+        check("重置 → idle", t[0] == "idle" and t[4] is None, str(t))
+        as_role(cur, "anon")
+        rpc(cur, "start_submission", "camp-hide-and-seek", 1, "FREE1", None, 1)
+        check("未開始倒數也能回報（自由模式）", True)
+
+        # 倒數中 8/8 → 提前完成
+        as_role(cur, "authenticated", ADMIN)
+        rpc(cur, "admin_timer", "start", 1200)
+        as_role(cur, "anon")
+        for n in range(1, 9):
+            s = rpc(cur, "start_submission", "camp-hide-and-seek", n, f"TM{n}", None, 1)
+            upload(cur, s["photo_path"])
+            rpc(cur, "submit_figure_found", s["submission_id"])
+        t = timer()
+        check("倒數中 8/8 → ended/completed 並記下剩餘", t[0] == "ended" and t[1] == "completed" and 1195000 < t[2] <= 1200000, str(t))
+        as_role(cur, "anon")
+        rpc(cur, "start_submission", "camp-hide-and-seek", 1, "AFTER", None, 1)
+        check("提前完成後仍可建立投稿（例如照片被退回後重找）", True)
+
     # reset.sql
     with connect() as c:
         c.execute((ROOT / "reset.sql").read_text())
         cur0 = c.execute("select count(*) filter (where is_found), (select count(*) from public.submissions) from public.figures")
         check("reset.sql 清空進度與投稿", cur0.fetchone() == (0, 0))
+        cur0 = c.execute("select timer_status, timer_ends_at from public.games")
+        check("reset.sql 倒數歸零", cur0.fetchone() == ("idle", None))
 
     with psycopg.connect(f"{DSN} dbname=postgres", autocommit=True) as c:
         c.execute(f"drop database {DB} with (force)")

@@ -11,7 +11,8 @@
 --   4. RLS：玩家只能讀 games / figures；投稿紀錄只有管理員能讀；所有寫入都走 RPC
 --   5. RPC：start_submission / mark_submission_failed / submit_figure_found（玩家）
 --           is_admin / is_admin_email / review_submission（後台）
---   6. Realtime：figures、submissions
+--   6. Realtime：games（倒數計時）、figures、submissions
+--   8. 倒數計時：admin_timer（後台控制）/ server_now（校正玩家手機時間）
 --   7. seed：camp-hide-and-seek + 8 個小人
 --
 -- ⚠️ 最下面要把管理員 Email 換成你的（admin_users）
@@ -80,6 +81,21 @@ end $$;
 alter table public.submissions add column if not exists player_name text
   check (player_name is null or char_length(player_name) between 1 and 20);
 alter table public.figures add column if not exists found_by_name text;
+
+-- 倒數計時（管理員設定，所有玩家透過 Realtime 同步）
+--   timer_status：idle 未開始 / running 倒數中 / paused 暫停 / ended 已結束
+--   running 時以 timer_ends_at 為準；timer_started_at 是「GO」的時間（比按下開始晚 3 秒，用來播 3-2-1）
+--   running 且 now() > timer_ends_at 即為「時間到」
+alter table public.games add column if not exists timer_status text not null default 'idle'
+  check (timer_status in ('idle', 'running', 'paused', 'ended'));
+alter table public.games add column if not exists timer_duration_ms integer;
+alter table public.games add column if not exists timer_started_at timestamptz;
+alter table public.games add column if not exists timer_ends_at timestamptz;
+alter table public.games add column if not exists timer_remaining_ms integer;
+alter table public.games add column if not exists timer_ended_at timestamptz;
+alter table public.games add column if not exists timer_end_reason text
+  check (timer_end_reason is null or timer_end_reason in ('completed', 'manual', 'time_up'));
+alter table public.games add column if not exists timer_version integer not null default 0;
 
 -- 後台管理員白名單（Email 小寫）
 create table if not exists public.admin_users (
@@ -245,6 +261,12 @@ begin
     raise exception 'figure_not_found' using errcode = 'P0002';
   end if;
 
+  -- 倒數結束後不能再回報（3 秒緩衝給剛好按下的人）
+  if (v_game.timer_status = 'running' and now() > v_game.timer_ends_at + interval '3 seconds')
+     or (v_game.timer_status = 'ended' and v_game.timer_end_reason in ('manual', 'time_up')) then
+    raise exception 'time_up' using errcode = 'P0001';
+  end if;
+
   if p_player_id is null or p_player_id !~ '^[A-Za-z0-9_-]{1,32}$' then
     raise exception 'invalid_player_id' using errcode = '22023';
   end if;
@@ -361,6 +383,21 @@ begin
    where id = v_sub.game_id
      and is_completed is distinct from (v_found_count = v_total);
 
+  -- 8/8 全部找到 → 倒數提前結束（記下剩餘時間）
+  if v_status = 'success' and v_found_count = v_total then
+    update public.games
+       set timer_status       = 'ended',
+           timer_end_reason   = 'completed',
+           timer_ended_at     = now(),
+           timer_remaining_ms = case
+             when timer_status = 'paused' then timer_remaining_ms
+             else greatest(0, (extract(epoch from (timer_ends_at - greatest(now(), timer_started_at))) * 1000)::integer)
+           end,
+           timer_version      = timer_version + 1
+     where id = v_sub.game_id
+       and (timer_status = 'paused' or (timer_status = 'running' and timer_ends_at > now()));
+  end if;
+
   return jsonb_build_object('status', v_status, 'figure', to_jsonb(v_figure), 'found_count', v_found_count);
 end;
 $$;
@@ -425,6 +462,133 @@ begin
 end;
 $$;
 
+
+-- ---------------------------------------------------------------------
+-- 7b. 倒數計時
+-- ---------------------------------------------------------------------
+
+-- 伺服器時間：玩家手機時間可能不準，用來算時差
+create or replace function public.server_now()
+returns timestamptz
+language sql
+stable
+set search_path = ''
+as $$
+  select now();
+$$;
+
+-- 後台控制倒數：start / pause / resume / add / end / reset
+--   start  p_seconds = 倒數秒數（10 秒 ~ 3 小時），3 秒後 GO
+--   add    p_seconds = 加減秒數（-3600 ~ 3600）
+create or replace function public.admin_timer(
+  p_action    text,
+  p_seconds   integer default null,
+  p_game_slug text default 'camp-hide-and-seek'
+)
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path = ''
+as $$
+declare
+  v_game public.games%rowtype;
+  v_now  timestamptz := now();
+  v_lead interval := interval '3 seconds';
+  v_left integer;
+begin
+  if not public.is_admin() then
+    raise exception 'not_admin' using errcode = '42501';
+  end if;
+
+  select * into v_game from public.games where slug = p_game_slug for update;
+  if not found then
+    raise exception 'game_not_found' using errcode = 'P0002';
+  end if;
+
+  -- running 時剩餘毫秒（3-2-1 期間算完整時間）
+  if v_game.timer_status = 'running' then
+    v_left := greatest(0, (extract(epoch from (v_game.timer_ends_at - greatest(v_now, v_game.timer_started_at))) * 1000)::integer);
+  end if;
+
+  if p_action = 'start' then
+    if p_seconds is null or p_seconds not between 10 and 10800 then
+      raise exception 'invalid_seconds' using errcode = '22023';
+    end if;
+    update public.games
+       set timer_status = 'running', timer_duration_ms = p_seconds * 1000,
+           timer_started_at = v_now + v_lead, timer_ends_at = v_now + v_lead + make_interval(secs => p_seconds),
+           timer_remaining_ms = null, timer_ended_at = null, timer_end_reason = null,
+           timer_version = timer_version + 1
+     where id = v_game.id;
+
+  elsif p_action = 'pause' then
+    if v_game.timer_status <> 'running' or v_left = 0 then
+      return jsonb_build_object('ok', false, 'reason', 'not_running');
+    end if;
+    update public.games
+       set timer_status = 'paused', timer_remaining_ms = v_left, timer_version = timer_version + 1
+     where id = v_game.id;
+
+  elsif p_action = 'resume' then
+    if v_game.timer_status <> 'paused' then
+      return jsonb_build_object('ok', false, 'reason', 'not_paused');
+    end if;
+    update public.games
+       set timer_status = 'running',
+           timer_started_at = v_now + v_lead,
+           timer_ends_at = v_now + v_lead + make_interval(secs => v_game.timer_remaining_ms / 1000.0),
+           timer_remaining_ms = null, timer_version = timer_version + 1
+     where id = v_game.id;
+
+  elsif p_action = 'add' then
+    if p_seconds is null or p_seconds = 0 or p_seconds not between -3600 and 3600 then
+      raise exception 'invalid_seconds' using errcode = '22023';
+    end if;
+    if v_game.timer_status = 'running' and v_left > 0 then
+      update public.games
+         set timer_ends_at = greatest(v_now, timer_started_at) + make_interval(secs => greatest(1000, v_left + p_seconds * 1000) / 1000.0),
+             timer_duration_ms = greatest(1000, timer_duration_ms + p_seconds * 1000),
+             timer_version = timer_version + 1
+       where id = v_game.id;
+    elsif v_game.timer_status = 'paused' then
+      update public.games
+         set timer_remaining_ms = greatest(1000, timer_remaining_ms + p_seconds * 1000),
+             timer_duration_ms = greatest(1000, timer_duration_ms + p_seconds * 1000),
+             timer_version = timer_version + 1
+       where id = v_game.id;
+    else
+      return jsonb_build_object('ok', false, 'reason', 'not_running');
+    end if;
+
+  elsif p_action = 'end' then
+    if v_game.timer_status not in ('running', 'paused') then
+      return jsonb_build_object('ok', false, 'reason', 'not_running');
+    end if;
+    update public.games
+       set timer_status = 'ended',
+           timer_end_reason = case when v_game.timer_status = 'running' and v_left = 0 then 'time_up' else 'manual' end,
+           timer_ended_at = case when v_game.timer_status = 'running' and v_left = 0 then timer_ends_at else v_now end,
+           timer_remaining_ms = coalesce(v_left, timer_remaining_ms),
+           timer_version = timer_version + 1
+     where id = v_game.id;
+
+  elsif p_action = 'reset' then
+    update public.games
+       set timer_status = 'idle', timer_duration_ms = null, timer_started_at = null, timer_ends_at = null,
+           timer_remaining_ms = null, timer_ended_at = null, timer_end_reason = null,
+           timer_version = timer_version + 1
+     where id = v_game.id;
+
+  else
+    raise exception 'invalid_action' using errcode = '22023';
+  end if;
+
+  select * into v_game from public.games where id = v_game.id;
+  return jsonb_build_object('ok', true, 'server_now', v_now, 'game', to_jsonb(v_game));
+end;
+$$;
+
 -- ---------------------------------------------------------------------
 -- 函式權限：預設收回，只開放需要的
 -- ---------------------------------------------------------------------
@@ -436,6 +600,8 @@ revoke all on function public.mark_submission_failed(uuid, text)              fr
 revoke all on function public.submit_figure_found(uuid)                       from public, anon, authenticated;
 revoke all on function public.review_submission(uuid, text)                   from public, anon, authenticated;
 revoke all on function public.set_updated_at()                                from public, anon, authenticated;
+revoke all on function public.server_now()                                    from public, anon, authenticated;
+revoke all on function public.admin_timer(text, integer, text)                from public, anon, authenticated;
 
 grant execute on function public.is_admin()                                      to anon, authenticated;
 grant execute on function public.is_admin_email(text)                            to anon, authenticated;
@@ -444,12 +610,20 @@ grant execute on function public.start_submission(text, integer, text, text, int
 grant execute on function public.mark_submission_failed(uuid, text)              to anon, authenticated;
 grant execute on function public.submit_figure_found(uuid)                       to anon, authenticated;
 grant execute on function public.review_submission(uuid, text)                   to authenticated;
+grant execute on function public.server_now()                                    to anon, authenticated;
+grant execute on function public.admin_timer(text, integer, text)                to authenticated;
 
 -- ---------------------------------------------------------------------
--- 8. Realtime（figures：所有玩家；submissions：RLS 限管理員）
+-- 8. Realtime（games / figures：所有玩家；submissions：RLS 限管理員）
 -- ---------------------------------------------------------------------
 do $$
 begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'games'
+  ) then
+    alter publication supabase_realtime add table public.games;
+  end if;
   if not exists (
     select 1 from pg_publication_tables
     where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'figures'

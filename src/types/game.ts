@@ -1,11 +1,43 @@
 export const GAME_SLUG = "camp-hide-and-seek";
 export const TOTAL_FIGURES = 8;
 
+/** 倒數計時狀態（資料庫存的狀態；「時間到」= running 且現在 > endsAt） */
+export type TimerStatus = "idle" | "running" | "paused" | "ended";
+export type TimerEndReason = "completed" | "manual" | "time_up";
+
+export interface GameTimer {
+  status: TimerStatus;
+  durationMs: number | null;
+  /** GO 的時間（比按下開始晚 3 秒，用來播 3-2-1） */
+  startedAt: string | null;
+  endsAt: string | null;
+  /** 暫停 / 結束時的剩餘毫秒 */
+  remainingMs: number | null;
+  endedAt: string | null;
+  endReason: TimerEndReason | null;
+  /** 每次操作 +1 */
+  version: number;
+}
+
+export const IDLE_TIMER: GameTimer = {
+  status: "idle",
+  durationMs: null,
+  startedAt: null,
+  endsAt: null,
+  remainingMs: null,
+  endedAt: null,
+  endReason: null,
+  version: 0,
+};
+
+export type TimerAction = "start" | "pause" | "resume" | "add" | "end" | "reset";
+
 export interface Game {
   id: string;
   slug: string;
   title: string;
   isCompleted: boolean;
+  timer: GameTimer;
 }
 
 export interface Figure {
@@ -60,7 +92,7 @@ export interface MarkFoundResult {
   figure?: Figure;
   foundCount?: number;
   /** status = error 時的原因 */
-  error?: "upload_failed" | "unknown";
+  error?: "upload_failed" | "time_up" | "unknown";
 }
 
 export type GameLoadStatus = "loading" | "ready" | "error";
@@ -94,7 +126,9 @@ export interface GameService {
   fetchGame(slug: string): Promise<{ game: Game; figures: Figure[] }>;
   /** 上傳照片並點亮小人（照片必填） */
   submitFind(slug: string, input: SubmitFindInput): Promise<MarkFoundResult>;
-  subscribe(gameId: string, onFigureUpdate: (figure: Figure) => void): () => void;
+  subscribe(gameId: string, onFigureUpdate: (figure: Figure) => void, onGameUpdate?: (game: Game) => void): () => void;
+  /** 伺服器時間 − 本機時間（ms），用來校正手機時間不準 */
+  getClockOffset(): Promise<number>;
 }
 
 /* ---------- 後台 ---------- */
@@ -110,7 +144,10 @@ export interface AdminService {
   /** Email magic link 登入 */
   signInWithEmail(email: string): Promise<SignInResult>;
   signOut(): Promise<void>;
-  listSubmissions(slug: string): Promise<{ figures: Figure[]; submissions: Submission[] }>;
+  listSubmissions(slug: string): Promise<{ game: Game; figures: Figure[]; submissions: Submission[] }>;
+  /** 倒數計時控制（start / add 需要秒數） */
+  controlTimer(action: TimerAction, seconds?: number): Promise<{ ok: boolean }>;
+  getClockOffset(): Promise<number>;
   reviewSubmission(submissionId: string, action: "approve" | "reject", reviewer: string): Promise<{ ok: boolean }>;
   /** 任何投稿或小人狀態變更時呼叫 */
   subscribe(onChange: () => void): () => void;

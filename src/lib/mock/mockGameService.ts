@@ -12,6 +12,7 @@
  * 測試參數：?mockError（載入失敗）、?mockUploadFail（照片上傳失敗）
  */
 import { blobToDataUrl } from "@/lib/image/compressImage";
+import { computeTimer, GRACE_MS, isLocked } from "@/lib/timer";
 import type { Figure, GameService, MarkFoundResult, Submission } from "@/types/game";
 import {
   demoPhoto,
@@ -46,6 +47,7 @@ export const mockGameService: GameService = {
     const start = readDb();
     const target = start.figures.find((f) => f.number === figureNumber);
     if (!target) return { status: "error", error: "unknown" };
+    if (isLocked(computeTimer(start.game.timer, Date.now() - GRACE_MS).phase)) return { status: "error", error: "time_up" };
 
     // 1. 建立投稿紀錄
     const submission: Submission = {
@@ -130,8 +132,9 @@ export const mockGameService: GameService = {
     return { status: "success", figure: updated, foundCount: next.figures.filter((f) => f.isFound).length };
   },
 
-  subscribe(_gameId, onFigureUpdate) {
+  subscribe(_gameId, onFigureUpdate, onGameUpdate) {
     return onDbChange((prev, next) => {
+      if (onGameUpdate && prev?.game.timer?.version !== next.game.timer?.version) onGameUpdate(next.game);
       next.figures.forEach((f) => {
         const before = prev?.figures.find((p) => p.number === f.number);
         if (!before || before.isFound !== f.isFound || before.isVerified !== f.isVerified || before.photoUrl !== f.photoUrl) {
@@ -139,6 +142,10 @@ export const mockGameService: GameService = {
         }
       });
     });
+  },
+
+  async getClockOffset() {
+    return 0;
   },
 };
 

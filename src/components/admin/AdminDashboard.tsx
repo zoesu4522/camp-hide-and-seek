@@ -7,10 +7,12 @@ import {
   type AdminService,
   type AdminSession,
   type Figure,
+  type Game,
   type ReviewStatus,
   type Submission,
 } from "@/types/game";
 import PhotoViewer, { type PhotoViewerItem } from "../PhotoViewer";
+import AdminTimerPanel from "./AdminTimerPanel";
 
 interface Props {
   service: AdminService;
@@ -50,6 +52,7 @@ const REVIEW_LABEL: Record<ReviewStatus, { text: string; cls: string } | null> =
 };
 
 export default function AdminDashboard({ service, session, onSignOut }: Props) {
+  const [game, setGame] = useState<Game | null>(null);
   const [figures, setFigures] = useState<Figure[]>([]);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
@@ -66,6 +69,7 @@ export default function AdminDashboard({ service, session, onSignOut }: Props) {
       service
         .listSubmissions(GAME_SLUG)
         .then((res) => {
+          setGame((g) => (!g || res.game.timer.version >= g.timer.version ? res.game : g));
           setFigures([...res.figures].sort((a, b) => a.number - b.number));
           setSubmissions([...res.submissions].sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
           setUpdatedAt(new Date().toISOString());
@@ -147,6 +151,8 @@ export default function AdminDashboard({ service, session, onSignOut }: Props) {
           </button>
         </div>
       )}
+
+      {loadState !== "error" && <AdminTimerPanel service={service} timer={game?.timer} onChanged={load} />}
 
       {/* Stats */}
       <section className="mt-5 grid grid-cols-2 gap-2.5 sm:grid-cols-4" aria-label="統計">

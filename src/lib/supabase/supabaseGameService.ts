@@ -5,13 +5,13 @@
  *   rpc start_submission → Storage 上傳照片（只能傳到該投稿路徑）
  *     ├ 失敗 → rpc mark_submission_failed（後台看得到失敗原因）
  *     └ 成功 → rpc submit_figure_found（只更新 is_found = false 的 row）
- * Realtime：訂閱 figures UPDATE（filter game_id）。
+ * Realtime：訂閱 figures UPDATE（filter game_id）與 games UPDATE（倒數計時）。
  *   每次（重新）連上都會重抓一次 figures，補上斷線期間漏掉的更新；
  *   回到前景（visibilitychange）也會重抓。重複資料由 useCampGame 去重。
  */
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import type { GameService, MarkFoundResult } from "@/types/game";
-import { getSupabase, PHOTO_BUCKET } from "./client";
+import { getSupabase, measureClockOffset, PHOTO_BUCKET } from "./client";
 import { FIGURE_COLUMNS, GAME_COLUMNS, toFigure, toGame, type FigureRow, type GameRow } from "./rows";
 
 interface CreateSubmissionResult {
@@ -55,7 +55,9 @@ export const supabaseGameService: GameService = {
       p_player_name: playerName,
       p_photo_bytes: photo.size,
     });
-    if (created.error) return { status: "error", error: "unknown" };
+    if (created.error) {
+      return { status: "error", error: created.error.message.includes("time_up") ? "time_up" : "unknown" };
+    }
     const sub = created.data as CreateSubmissionResult;
 
     // supabase-js 上傳沒有進度事件，用階段性進度表示
@@ -90,7 +92,7 @@ export const supabaseGameService: GameService = {
     return { status: r.status, figure: toFigure(r.figure), foundCount: r.found_count };
   },
 
-  subscribe(gameId, onFigureUpdate) {
+  subscribe(gameId, onFigureUpdate, onGameUpdate) {
     const sb = getSupabase();
     let disposed = false;
 
@@ -100,6 +102,13 @@ export const supabaseGameService: GameService = {
         .catch(() => {
           /* 下次重連再補 */
         });
+      if (onGameUpdate) {
+        sb.from("games")
+          .select(GAME_COLUMNS)
+          .eq("id", gameId)
+          .single()
+          .then(({ data }) => !disposed && data && onGameUpdate(toGame(data as GameRow)));
+      }
     };
 
     const channel: RealtimeChannel = sb
@@ -108,6 +117,11 @@ export const supabaseGameService: GameService = {
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "figures", filter: `game_id=eq.${gameId}` },
         (payload) => onFigureUpdate(toFigure(payload.new as FigureRow)),
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "games", filter: `id=eq.${gameId}` },
+        (payload) => onGameUpdate?.(toGame(payload.new as GameRow)),
       )
       .subscribe((status) => {
         if (status === "SUBSCRIBED") resync();
@@ -124,4 +138,6 @@ export const supabaseGameService: GameService = {
       sb.removeChannel(channel);
     };
   },
+
+  getClockOffset: measureClockOffset,
 };

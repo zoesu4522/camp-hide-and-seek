@@ -6,9 +6,12 @@
  */
 import type { AdminService, AdminSession } from "@/types/game";
 import { GAME_SLUG } from "@/types/game";
-import { getSupabase } from "./client";
+import { getSupabase, measureClockOffset } from "./client";
 import {
   FIGURE_COLUMNS,
+  GAME_COLUMNS,
+  toGame,
+  type GameRow,
   SUBMISSION_COLUMNS,
   toFigure,
   toSubmission,
@@ -16,10 +19,10 @@ import {
   type SubmissionRow,
 } from "./rows";
 
-async function gameId(slug: string): Promise<string> {
-  const { data, error } = await getSupabase().from("games").select("id").eq("slug", slug).single();
+async function fetchGameRow(slug: string) {
+  const { data, error } = await getSupabase().from("games").select(GAME_COLUMNS).eq("slug", slug).single();
   if (error) throw error;
-  return (data as { id: string }).id;
+  return toGame(data as GameRow);
 }
 
 export const supabaseAdminService: AdminService = {
@@ -65,7 +68,8 @@ export const supabaseAdminService: AdminService = {
 
   async listSubmissions(slug) {
     const sb = getSupabase();
-    const id = await gameId(slug);
+    const game = await fetchGameRow(slug);
+    const id = game.id;
     const [figures, submissions] = await Promise.all([
       sb.from("figures").select(FIGURE_COLUMNS).eq("game_id", id).order("number"),
       sb.from("submissions").select(SUBMISSION_COLUMNS).eq("game_id", id).order("created_at", { ascending: false }).limit(500),
@@ -73,6 +77,7 @@ export const supabaseAdminService: AdminService = {
     if (figures.error) throw figures.error;
     if (submissions.error) throw submissions.error;
     return {
+      game,
       figures: (figures.data as FigureRow[]).map(toFigure),
       submissions: (submissions.data as SubmissionRow[]).map(toSubmission),
     };
@@ -86,6 +91,17 @@ export const supabaseAdminService: AdminService = {
     return { ok: !error && Boolean((data as { ok?: boolean } | null)?.ok) };
   },
 
+  async controlTimer(action, seconds) {
+    const { data, error } = await getSupabase().rpc("admin_timer", {
+      p_action: action,
+      p_seconds: seconds ?? null,
+      p_game_slug: GAME_SLUG,
+    });
+    return { ok: !error && Boolean((data as { ok?: boolean } | null)?.ok) };
+  },
+
+  getClockOffset: measureClockOffset,
+
   subscribe(onChange) {
     const sb = getSupabase();
     let timer: number | undefined;
@@ -98,6 +114,11 @@ export const supabaseAdminService: AdminService = {
       .channel(`admin:${GAME_SLUG}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "submissions" }, debounced)
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "figures" }, debounced)
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "games" }, () => {
+        // 倒數計時要即時，不等 debounce
+        window.clearTimeout(timer);
+        onChange();
+      })
       .subscribe((status) => {
         if (status === "SUBSCRIBED") debounced();
       });

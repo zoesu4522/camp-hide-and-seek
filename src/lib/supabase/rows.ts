@@ -1,4 +1,4 @@
-import type { Figure, Game, Submission } from "@/types/game";
+import type { Figure, Game, GameTimer, Submission } from "@/types/game";
 import { photoPublicUrl } from "./client";
 
 /** DB row 型別（snake_case） */
@@ -7,6 +7,14 @@ export interface GameRow {
   slug: string;
   title: string;
   is_completed: boolean;
+  timer_status: GameTimer["status"] | null;
+  timer_duration_ms: number | null;
+  timer_started_at: string | null;
+  timer_ends_at: string | null;
+  timer_remaining_ms: number | null;
+  timer_ended_at: string | null;
+  timer_end_reason: GameTimer["endReason"];
+  timer_version: number | null;
 }
 
 export interface FigureRow {
@@ -37,7 +45,8 @@ export interface SubmissionRow {
   reviewed_by: string | null;
 }
 
-export const GAME_COLUMNS = "id, slug, title, is_completed";
+export const GAME_COLUMNS =
+  "id, slug, title, is_completed, timer_status, timer_duration_ms, timer_started_at, timer_ends_at, timer_remaining_ms, timer_ended_at, timer_end_reason, timer_version";
 export const FIGURE_COLUMNS = "id, game_id, number, is_found, found_at, photo_path, submission_id, found_by_name, is_verified";
 export const SUBMISSION_COLUMNS =
   "id, game_id, figure_number, player_id, player_name, photo_path, photo_bytes, upload_status, upload_error, review_status, created_at, reviewed_at, reviewed_by";
@@ -47,6 +56,16 @@ export const toGame = (r: GameRow): Game => ({
   slug: r.slug,
   title: r.title,
   isCompleted: r.is_completed,
+  timer: {
+    status: r.timer_status ?? "idle",
+    durationMs: r.timer_duration_ms ?? null,
+    startedAt: r.timer_started_at ?? null,
+    endsAt: r.timer_ends_at ?? null,
+    remainingMs: r.timer_remaining_ms ?? null,
+    endedAt: r.timer_ended_at ?? null,
+    endReason: r.timer_end_reason ?? null,
+    version: r.timer_version ?? 0,
+  },
 });
 
 export const toFigure = (r: FigureRow): Figure => ({

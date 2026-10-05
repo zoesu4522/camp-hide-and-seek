@@ -31,6 +31,7 @@ export function useCampGame(service: GameService = gameService, slug: string = G
   const [foundEvent, setFoundEvent] = useState<FoundEvent | null>(null);
   const [rejectEvent, setRejectEvent] = useState<RejectEvent | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
+  const [clockOffset, setClockOffset] = useState(0);
 
   const figuresRef = useRef<Figure[]>([]);
   const announced = useRef<Set<number>>(new Set());
@@ -80,7 +81,12 @@ export function useCampGame(service: GameService = gameService, slug: string = G
         commitFigures(sorted);
         setGame(g);
         setStatus("ready");
-        unsubscribe = service.subscribe(g.id, (fig) => applyFigure(fig, "remote"));
+        unsubscribe = service.subscribe(
+          g.id,
+          (fig) => applyFigure(fig, "remote"),
+          // 倒數計時：只接受版本較新的（避免重連時舊資料蓋掉新的）
+          (incoming) => setGame((cur) => (cur && incoming.timer.version >= cur.timer.version ? { ...cur, timer: incoming.timer } : cur)),
+        );
       })
       .catch(() => {
         if (!cancelled) setStatus("error");
@@ -91,6 +97,25 @@ export function useCampGame(service: GameService = gameService, slug: string = G
       unsubscribe?.();
     };
   }, [service, slug, reloadToken, applyFigure, commitFigures]);
+
+  // 校正手機時間（每次回到前景再量一次）
+  useEffect(() => {
+    let cancelled = false;
+    const measure = () =>
+      service
+        .getClockOffset()
+        .then((o) => !cancelled && setClockOffset(o))
+        .catch(() => {
+          /* 用 0 */
+        });
+    measure();
+    const onVisible = () => document.visibilityState === "visible" && measure();
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [service]);
 
   const retry = useCallback(() => {
     setStatus("loading");
@@ -122,6 +147,7 @@ export function useCampGame(service: GameService = gameService, slug: string = G
     isCompleted: foundCount === TOTAL_FIGURES,
     foundEvent,
     rejectEvent,
+    clockOffset,
     submitFind,
     retry,
   };

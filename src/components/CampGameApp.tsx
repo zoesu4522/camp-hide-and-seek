@@ -23,6 +23,12 @@ import OpeningAnimation from "./OpeningAnimation";
 import LoadingCamp from "./LoadingCamp";
 import ConnectionError from "./ConnectionError";
 import MockDemoPanel from "./dev/MockDemoPanel";
+import TimerBar from "./timer/TimerBar";
+import TimerOverlays from "./timer/TimerOverlays";
+import { useGameTimer } from "@/hooks/useGameTimer";
+import { useTimerEvents } from "@/hooks/useTimerEvents";
+import { isLocked } from "@/lib/timer";
+import { unlockSound } from "@/lib/sound";
 
 const INTRO_KEY = "camp-hide-and-seek:intro-seen";
 
@@ -74,6 +80,7 @@ export default function CampGameApp() {
 
   const submitName = useCallback((name: string) => {
     musicRef.current?.start(); // 使用者手勢：手機也能開始播放音樂
+    unlockSound(); // 同時解鎖倒數音效
     savePlayerName(name);
     setEditingName(false);
   }, []);
@@ -89,6 +96,11 @@ export default function CampGameApp() {
   const notify = useCallback((text: string, tone: ToastMessage["tone"] = "info") => {
     setMessage({ id: Date.now(), text, tone });
   }, []);
+
+  // ---- 倒數計時（管理員設定，所有人同步）----
+  const timerView = useGameTimer(game.game?.timer, game.clockOffset);
+  const timerFx = useTimerEvents({ timer: game.game?.timer, view: timerView, ready: game.status === "ready", notify });
+  const locked = isLocked(timerView.phase);
 
   // 訊息自動消失
   useEffect(() => {
@@ -139,7 +151,15 @@ export default function CampGameApp() {
       setSelectedFigure(null);
       notify("這個小人剛剛已經被找到囉！");
     } else {
-      notify(result.error === "upload_failed" ? "照片沒有上傳成功，再試一次！" : "沒有成功點亮，再試一次！", "error");
+      if (result.error === "time_up") setSelectedFigure(null);
+      notify(
+        result.error === "time_up"
+          ? "⌛ 時間到了，這次來不及回報囉！"
+          : result.error === "upload_failed"
+            ? "照片沒有上傳成功，再試一次！"
+            : "沒有成功點亮，再試一次！",
+        "error",
+      );
     }
     return result.status;
   };
@@ -182,6 +202,7 @@ export default function CampGameApp() {
 
         {game.status === "ready" && (
           <>
+            <TimerBar view={timerView} bonus={timerFx.bonus} found={game.foundCount} total={game.total} />
             <ProgressBoard
               found={game.foundCount}
               total={game.total}
@@ -190,7 +211,11 @@ export default function CampGameApp() {
             <FigureGrid
               figures={game.figures}
               celebrateNumber={celebrateNumber}
-              onSelect={(f) => (playerName ? setSelectedFigure(f) : setEditingName(true))}
+              onSelect={(f) => {
+                if (locked) return notify("⌛ 時間到了，不能再回報囉！", "error");
+                if (!playerName) return setEditingName(true);
+                setSelectedFigure(f);
+              }}
               onView={openPhoto}
             />
             <HowToPlay />
@@ -207,6 +232,14 @@ export default function CampGameApp() {
       <FoundToast event={toastEvent} total={game.total} />
       <MessageToast message={message} />
       <CompletionOverlay open={showCompletion} total={game.total} onClose={closeCompletion} />
+      <TimerOverlays
+        view={timerView}
+        timer={game.game?.timer}
+        endOpen={timerFx.endOpen}
+        onCloseEnd={timerFx.closeEnd}
+        found={game.foundCount}
+        total={game.total}
+      />
 
       <PlayerNameGate
         open={needName || editingName}
@@ -215,7 +248,7 @@ export default function CampGameApp() {
         onSubmit={submitName}
         onCancel={() => setEditingName(false)}
       />
-      <BackgroundMusic ref={musicRef} />
+      <BackgroundMusic ref={musicRef} duck={timerFx.duck} />
 
       {/* SSR / hydration 期間先蓋深色，避免 opening 前閃一下內容 */}
       {introPending && <div className="fixed inset-0 z-[70] bg-night" aria-hidden />}
