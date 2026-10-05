@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "@fontsource/huninn/index.css";
 import "./globals.css";
 import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
+import UpdateChecker from "@/components/UpdateChecker";
 
 export const metadata: Metadata = {
   title: "躲貓貓小人｜Camp Hide & Seek",
@@ -32,6 +33,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body className="min-h-dvh">
         {children}
         <ServiceWorkerRegister />
+        <UpdateChecker />
       </body>
     </html>
   );
