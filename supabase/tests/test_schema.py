@@ -353,12 +353,14 @@ def main():
         res = rpc(cur, "admin_delete_submissions", all_ids)
         cur.execute("select player_id from public.submissions order by player_id")
         left = [r[0] for r in cur.fetchall()]
-        check("只刪掉 退回/重複/失敗/卡住 的投稿", res["deleted"] == 4 and left == ["DELACT", "DELFRE"], f"{res} {left}")
-        check("回傳已上傳照片的路徑", sorted(res["photo_paths"]) == sorted([ids["dup"]["photo_path"], ids["rej"]["photo_path"]]), str(res["photo_paths"]))
+        check("成功與無效投稿可刪，保留剛開始的上傳", res["deleted"] == 5 and left == ["DELFRE"], f"{res} {left}")
+        cur.execute("select path from public.camp_photo_cleanup")
+        paths = [r[0] for r in cur.fetchall()]
+        check("照片清理路徑已持久保存", len(paths) == 5, str(paths))
         cur.execute("select is_found from public.figures where number = 1")
-        check("點亮中的小人不受影響", cur.fetchone()[0] is True)
-        cur.execute("delete from storage.objects where bucket_id = 'figure-photos' and name = any(%s)", (res["photo_paths"],))
-        check("管理員可以刪照片檔", cur.rowcount == 2, str(cur.rowcount))
+        check("刪除點亮照片撤回小人進度", cur.fetchone()[0] is False)
+        cur.execute("delete from storage.objects where bucket_id = 'figure-photos' and name = any(%s)", (paths,))
+        check("管理員可以刪照片檔", cur.rowcount == 3, str(cur.rowcount))
 
     # reset.sql
     with connect() as c:
