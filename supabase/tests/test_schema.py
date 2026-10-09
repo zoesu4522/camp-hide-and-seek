@@ -57,6 +57,14 @@ def rpc(cur, fn, *args):
     return row[0] if row else None
 
 
+def go(cur):
+    """模擬管理員已經開始倒數（跳過 3-2-1），玩家才能回報"""
+    cur.execute("reset role")
+    cur.execute("""update public.games set timer_status='running', timer_duration_ms=3600000,
+                   timer_started_at=now()-interval '1 minute', timer_ends_at=now()+interval '1 hour',
+                   timer_remaining_ms=null, timer_ended_at=null, timer_end_reason=null""")
+
+
 def upload(cur, path):
     cur.execute("insert into storage.objects (bucket_id, name) values ('figure-photos', %s)", (path,))
 
@@ -78,6 +86,12 @@ def main():
         check("realtime publication 含 games + figures + submissions", cur0.fetchone()[0] == 3)
 
         cur = c.cursor()
+
+        # ---------- 遊戲還沒開始不能回報 ----------
+        as_role(cur, "anon")
+        ok, msg = expect_error(cur, "select public.start_submission('camp-hide-and-seek', 1, 'EARLY', null, 1)", contains="not_started")
+        check("還沒開始倒數不能回報", ok, msg)
+        go(cur)
 
         # ---------- anon 權限 ----------
         as_role(cur, "anon")
@@ -206,6 +220,7 @@ def main():
     # ---------- 併發：兩人同時點亮 #8 ----------
     with connect() as c:
         cur = c.cursor()
+        go(cur)
         as_role(cur, "anon")
         a = rpc(cur, "start_submission", "camp-hide-and-seek", 8, "RACEA", None, 1)
         b = rpc(cur, "start_submission", "camp-hide-and-seek", 8, "RACEB", None, 1)
@@ -299,19 +314,34 @@ def main():
         t = timer()
         check("重置 → idle", t[0] == "idle" and t[4] is None, str(t))
         as_role(cur, "anon")
-        rpc(cur, "start_submission", "camp-hide-and-seek", 1, "FREE1", None, 1)
-        check("未開始倒數也能回報（自由模式）", True)
+        ok, msg = expect_error(cur, "select public.start_submission('camp-hide-and-seek', 1, 'IDLE1', null, 1)", contains="not_started")
+        check("重置倒數後（未開始）不能回報", ok, msg)
 
-        # 倒數中 8/8 → 提前完成
         as_role(cur, "authenticated", ADMIN)
         rpc(cur, "admin_timer", "start", 1200)
+        as_role(cur, "anon")
+        ok, msg = expect_error(cur, "select public.start_submission('camp-hide-and-seek', 1, 'LEAD1', null, 1)", contains="not_started")
+        check("3-2-1 期間不能回報", ok, msg)
+        cur.execute("reset role")
+        cur.execute("update public.games set timer_started_at = now() - interval '1 second', timer_ends_at = now() + interval '1199 seconds'")
+        as_role(cur, "authenticated", ADMIN)
+        rpc(cur, "admin_timer", "pause")
+        as_role(cur, "anon")
+        ok, msg = expect_error(cur, "select public.start_submission('camp-hide-and-seek', 1, 'PAUSE1', null, 1)", contains="paused")
+        check("暫停中不能回報", ok, msg)
+        as_role(cur, "authenticated", ADMIN)
+        rpc(cur, "admin_timer", "resume")
+        cur.execute("reset role")
+        cur.execute("update public.games set timer_started_at = now() - interval '1 second', timer_ends_at = now() + interval '1199 seconds'")
+
+        # 倒數中 8/8 → 提前完成
         as_role(cur, "anon")
         for n in range(1, 9):
             s = rpc(cur, "start_submission", "camp-hide-and-seek", n, f"TM{n}", None, 1)
             upload(cur, s["photo_path"])
             rpc(cur, "submit_figure_found", s["submission_id"])
         t = timer()
-        check("倒數中 8/8 → ended/completed 並記下剩餘", t[0] == "ended" and t[1] == "completed" and 1195000 < t[2] <= 1200000, str(t))
+        check("倒數中 8/8 → ended/completed 並記下剩餘", t[0] == "ended" and t[1] == "completed" and 1190000 < t[2] <= 1200000, str(t))
         as_role(cur, "anon")
         rpc(cur, "start_submission", "camp-hide-and-seek", 1, "AFTER", None, 1)
         check("提前完成後仍可建立投稿（例如照片被退回後重找）", True)
@@ -320,7 +350,7 @@ def main():
     with connect() as c:
         cur = c.cursor()
         cur.execute("update public.figures set is_found=false, found_at=null, photo_path=null, submission_id=null, found_by_name=null, is_verified=false")
-        cur.execute("update public.games set timer_status='idle', timer_ends_at=null, timer_started_at=null, timer_end_reason=null")
+        go(cur)
         cur.execute("delete from public.submissions")
         as_role(cur, "anon")
         ids = {}
@@ -361,6 +391,29 @@ def main():
         check("刪除點亮照片撤回小人進度", cur.fetchone()[0] is False)
         cur.execute("delete from storage.objects where bucket_id = 'figure-photos' and name = any(%s)", (paths,))
         check("管理員可以刪照片檔", cur.rowcount == 3, str(cur.rowcount))
+
+    # ---------- 重置遊戲（後台） ----------
+    with connect() as c:
+        cur = c.cursor()
+        go(cur)
+        as_role(cur, "anon")
+        for n in (2, 3):
+            sub = rpc(cur, "start_submission", "camp-hide-and-seek", n, f"RST{n}", "重置測試", 1)
+            upload(cur, sub["photo_path"])
+            rpc(cur, "submit_figure_found", sub["submission_id"])
+        as_role(cur, "authenticated", ADMIN)
+        ok, msg = expect_error(cur, "select public.admin_reset_game('camp-hide-and-seek', '重置')", contains="confirmation_required")
+        check("重置遊戲：確認文字不對會被擋", ok, msg)
+        cur.execute("select round from public.games"); round0 = cur.fetchone()[0]
+        res = rpc(cur, "admin_reset_game", "camp-hide-and-seek", "重置遊戲")
+        cur.execute("select count(*) filter (where is_found) from public.figures"); found = cur.fetchone()[0]
+        cur.execute("select count(*) from public.submissions"); subs = cur.fetchone()[0]
+        cur.execute("select round, is_completed, timer_status from public.games"); g = cur.fetchone()
+        check("重置遊戲：小人全未找到、投稿清空", res["ok"] and found == 0 and subs == 0, f"{res} {found} {subs}")
+        check("重置遊戲：round + 1、倒數回到未開始", g == (round0 + 1, False, "idle"), str(g))
+        as_role(cur, "anon")
+        ok, msg = expect_error(cur, "select public.start_submission('camp-hide-and-seek', 1, 'AFTERRST', null, 1)", contains="not_started")
+        check("重置遊戲後要等重新開始才能回報", ok, msg)
 
     # reset.sql
     with connect() as c:

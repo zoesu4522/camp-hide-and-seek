@@ -20,6 +20,8 @@ begin
   if not exists(select 1 from public.camp_photo_cleanup where path='games/camp-hide-and-seek/1/test.jpg') then raise exception 'cleanup not queued'; end if;
   r := public.admin_delete_submissions(array[s]);
   if (r->>'deleted')::int <> 0 then raise exception 'delete not idempotent'; end if;
+  -- 遊戲開始後才能回報
+  update public.games set timer_status='running', timer_started_at=now()-interval '1 minute', timer_ends_at=now()+interval '1 hour' where id=g;
   r := public.start_submission('camp-hide-and-seek',2,'TEST2','測試',100);
   s := (r->>'submission_id')::uuid;
   perform public.admin_timer('start',60,'camp-hide-and-seek');

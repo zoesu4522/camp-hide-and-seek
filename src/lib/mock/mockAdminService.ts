@@ -65,7 +65,7 @@ export const mockAdminService: AdminService = {
     if (confirmation !== "重置遊戲") return { ok: false, deleted: 0 };
     const db = readDb();
     const figures = db.figures.map((f) => ({ ...f, isFound: false, foundAt: null, photoUrl: null, submissionId: null, foundByName: null, isVerified: false }));
-    writeDb({ ...db, figures, submissions: [], game: { ...db.game, isCompleted: false, timer: { ...IDLE_TIMER, version: db.game.timer.version + 1 } } });
+    writeDb({ ...db, figures, submissions: [], game: { ...db.game, isCompleted: false, round: (db.game.round ?? 0) + 1, timer: { ...IDLE_TIMER, version: db.game.timer.version + 1 } } });
     return { ok: true, deleted: db.submissions.length };
   },
 

@@ -51,7 +51,33 @@ function FlipClock({ value, className }: { value: string; className?: string }) 
  */
 export default function TimerBar({ view, bonus, found, total }: Props) {
   const [open, setOpen] = useState(false);
-  if (view.phase === "idle") return null;
+  // 還沒開始：提示等待管理員開始（這時候不能回報）
+  if (view.phase === "idle") {
+    return (
+      <div className="pointer-events-none sticky top-[calc(env(safe-area-inset-top)+8px)] z-40 mx-auto mt-1 flex w-full justify-center px-4">
+        <motion.div
+          role="status"
+          className="wood-dark flex items-center gap-2.5 rounded-full border border-white/10 py-2 pl-3 pr-5 shadow-[0_8px_20px_rgba(0,0,0,0.45)]"
+          initial={{ y: -20, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={{ type: "spring", stiffness: 300, damping: 22 }}
+        >
+          <motion.span
+            className="text-[20px]"
+            animate={{ rotate: [0, 180, 180, 360] }}
+            transition={{ duration: 2.4, repeat: Infinity, times: [0, 0.4, 0.6, 1], ease: "easeInOut" }}
+            aria-hidden
+          >
+            ⏳
+          </motion.span>
+          <span className="flex flex-col leading-tight">
+            <span className="text-[15px] text-cream">等待遊戲開始</span>
+            <span className="text-[11.5px] text-cream/60">管理員開始倒數後才能回報</span>
+          </span>
+        </motion.div>
+      </div>
+    );
+  }
 
   const c = tone(view);
   const remSec = Math.ceil(view.remainingMs / 1000);

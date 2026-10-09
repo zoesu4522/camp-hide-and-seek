@@ -96,6 +96,8 @@ alter table public.games add column if not exists timer_ended_at timestamptz;
 alter table public.games add column if not exists timer_end_reason text
   check (timer_end_reason is null or timer_end_reason in ('completed', 'manual', 'time_up'));
 alter table public.games add column if not exists timer_version integer not null default 0;
+-- 第幾輪（重置遊戲 +1），玩家端用來分辨「重置」和「照片被退回」
+alter table public.games add column if not exists round integer not null default 0;
 
 -- 後台管理員白名單（Email 小寫）
 create table if not exists public.admin_users (
@@ -270,6 +272,14 @@ begin
   select * into v_figure from public.figures where game_id = v_game.id and number = p_figure_number;
   if not found then
     raise exception 'figure_not_found' using errcode = 'P0002';
+  end if;
+
+  -- 遊戲還沒開始（管理員還沒按開始、或正在 3-2-1）不能回報；暫停中也不行
+  if v_game.timer_status = 'idle' or (v_game.timer_status = 'running' and now() < v_game.timer_started_at) then
+    raise exception 'not_started' using errcode = 'P0001';
+  end if;
+  if v_game.timer_status = 'paused' then
+    raise exception 'paused' using errcode = 'P0001';
   end if;
 
   -- 倒數結束後不能再回報（3 秒緩衝給剛好按下的人）
@@ -776,7 +786,7 @@ begin
   update public.games set is_completed = false,
     timer_status = 'idle', timer_duration_ms = null, timer_started_at = null, timer_ends_at = null,
     timer_remaining_ms = null, timer_ended_at = null, timer_end_reason = null,
-    timer_version = timer_version + 1 where id = v_game;
+    timer_version = timer_version + 1, round = round + 1 where id = v_game;
   return jsonb_build_object('ok',true,'deleted',v_count);
 end;
 $$;

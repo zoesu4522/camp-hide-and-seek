@@ -56,7 +56,9 @@ export const supabaseGameService: GameService = {
       p_photo_bytes: photo.size,
     });
     if (created.error) {
-      return { status: "error", error: created.error.message.includes("time_up") ? "time_up" : "unknown" };
+      const m = created.error.message;
+      const error = m.includes("time_up") ? "time_up" : m.includes("not_started") ? "not_started" : m.includes("paused") ? "paused" : "unknown";
+      return { status: "error", error };
     }
     const sub = created.data as CreateSubmissionResult;
 

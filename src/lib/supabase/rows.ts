@@ -15,6 +15,7 @@ export interface GameRow {
   timer_ended_at: string | null;
   timer_end_reason: GameTimer["endReason"];
   timer_version: number | null;
+  round: number | null;
 }
 
 export interface FigureRow {
@@ -46,7 +47,7 @@ export interface SubmissionRow {
 }
 
 export const GAME_COLUMNS =
-  "id, slug, title, is_completed, timer_status, timer_duration_ms, timer_started_at, timer_ends_at, timer_remaining_ms, timer_ended_at, timer_end_reason, timer_version";
+  "id, slug, title, is_completed, timer_status, timer_duration_ms, timer_started_at, timer_ends_at, timer_remaining_ms, timer_ended_at, timer_end_reason, timer_version, round";
 export const FIGURE_COLUMNS = "id, game_id, number, is_found, found_at, photo_path, submission_id, found_by_name, is_verified";
 export const SUBMISSION_COLUMNS =
   "id, game_id, figure_number, player_id, player_name, photo_path, photo_bytes, upload_status, upload_error, review_status, created_at, reviewed_at, reviewed_by";
@@ -66,6 +67,7 @@ export const toGame = (r: GameRow): Game => ({
     endReason: r.timer_end_reason ?? null,
     version: r.timer_version ?? 0,
   },
+  round: r.round ?? 0,
 });
 
 export const toFigure = (r: FigureRow): Figure => ({

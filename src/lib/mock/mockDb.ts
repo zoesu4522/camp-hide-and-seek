@@ -70,7 +70,7 @@ export function seedDb(foundNumbers: number[] = DEMO_FOUND): MockDb {
     };
   });
   return {
-    game: { id: gameId, slug: "camp-hide-and-seek", title: "躲貓貓小人", isCompleted: false, timer: IDLE_TIMER },
+    game: { id: gameId, slug: "camp-hide-and-seek", title: "躲貓貓小人", isCompleted: false, timer: IDLE_TIMER, round: 0 },
     figures,
     submissions,
   };

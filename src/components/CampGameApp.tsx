@@ -27,7 +27,7 @@ import TimerBar from "./timer/TimerBar";
 import TimerOverlays from "./timer/TimerOverlays";
 import { useGameTimer } from "@/hooks/useGameTimer";
 import { useTimerEvents } from "@/hooks/useTimerEvents";
-import { isLocked } from "@/lib/timer";
+import { canReport, reportBlockedMessage } from "@/lib/timer";
 import { unlockSound } from "@/lib/sound";
 
 const INTRO_KEY = "camp-hide-and-seek:intro-seen";
@@ -100,7 +100,8 @@ export default function CampGameApp() {
   // ---- 倒數計時（管理員設定，所有人同步）----
   const timerView = useGameTimer(game.game?.timer, game.clockOffset);
   const timerFx = useTimerEvents({ timer: game.game?.timer, view: timerView, ready: game.status === "ready", notify });
-  const locked = isLocked(timerView.phase);
+  // 只有倒數進行中可以回報（未開始 / 3-2-1 / 暫停 / 時間到都不行）
+  const reportable = canReport(timerView.phase);
 
   // 訊息自動消失
   useEffect(() => {
@@ -136,6 +137,19 @@ export default function CampGameApp() {
     return () => window.clearTimeout(t);
   }, [rejectEvent, notify]);
 
+  // 管理員重置遊戲 → 關掉所有畫面，只提示一次
+  const { resetEvent } = game;
+  useEffect(() => {
+    if (!resetEvent) return;
+    const t = window.setTimeout(() => {
+      setShowCompletion(false);
+      setSelectedFigure(null);
+      setViewing(null);
+      notify("🔄 管理員重置了遊戲，等倒數開始再一起找小人！");
+    }, 60); // 晚一點，蓋過「倒數已重置」
+    return () => window.clearTimeout(t);
+  }, [resetEvent, notify]);
+
   const handleSubmit = async (photo: Blob, onProgress: (r: number) => void): Promise<SubmitOutcome> => {
     if (!selectedFigure) return "error";
     const result = await game.submitFind({
@@ -151,11 +165,16 @@ export default function CampGameApp() {
       setSelectedFigure(null);
       notify("這個小人剛剛已經被找到囉！");
     } else {
-      if (result.error === "time_up") setSelectedFigure(null);
+      const blocked = result.error === "time_up" || result.error === "not_started" || result.error === "paused";
+      if (blocked) setSelectedFigure(null);
       notify(
         result.error === "time_up"
           ? "⌛ 時間到了，這次來不及回報囉！"
-          : result.error === "upload_failed"
+          : result.error === "not_started"
+            ? reportBlockedMessage("idle")
+            : result.error === "paused"
+              ? reportBlockedMessage("paused")
+              : result.error === "upload_failed"
             ? "照片沒有上傳成功，再試一次！"
             : "沒有成功點亮，再試一次！",
         "error",
@@ -212,7 +231,7 @@ export default function CampGameApp() {
               figures={game.figures}
               celebrateNumber={celebrateNumber}
               onSelect={(f) => {
-                if (locked) return notify("⌛ 時間到了，不能再回報囉！", "error");
+                if (!reportable) return notify(reportBlockedMessage(timerView.phase), timerView.phase === "timeup" || timerView.phase === "stopped" ? "error" : "info");
                 if (!playerName) return setEditingName(true);
                 setSelectedFigure(f);
               }}

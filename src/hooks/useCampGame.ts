@@ -30,6 +30,11 @@ export function useCampGame(service: GameService = gameService, slug: string = G
   const [figures, setFigures] = useState<Figure[]>([]);
   const [foundEvent, setFoundEvent] = useState<FoundEvent | null>(null);
   const [rejectEvent, setRejectEvent] = useState<RejectEvent | null>(null);
+  /** 管理員重置遊戲（round 增加） */
+  const [resetEvent, setResetEvent] = useState<{ key: number; round: number } | null>(null);
+  const roundRef = useRef<number | null>(null);
+  const lastResetAt = useRef(0);
+  const pendingRejects = useRef<number[]>([]);
   const [reloadToken, setReloadToken] = useState(0);
   const [clockOffset, setClockOffset] = useState(0);
 
@@ -62,7 +67,16 @@ export function useCampGame(service: GameService = gameService, slug: string = G
         });
       } else if (!incoming.isFound && existing?.isFound) {
         announced.current.delete(incoming.number);
-        setRejectEvent({ key: `${incoming.number}-${Date.now()}`, number: incoming.number });
+        // 重置時 8 個小人會一起變回未找到 → 不要跳 8 次「照片被退回」。
+        // 稍等一下再通知：如果這段時間收到 round 變化（重置），就取消
+        if (Date.now() - lastResetAt.current > 3000) {
+          const n = incoming.number;
+          const t = window.setTimeout(() => {
+            pendingRejects.current = pendingRejects.current.filter((x) => x !== t);
+            setRejectEvent({ key: `${n}-${Date.now()}`, number: n });
+          }, 450);
+          pendingRejects.current.push(t);
+        }
       }
     },
     [commitFigures],
@@ -79,13 +93,25 @@ export function useCampGame(service: GameService = gameService, slug: string = G
         const sorted = [...list].sort((a, b) => a.number - b.number);
         announced.current = new Set(sorted.filter((f) => f.isFound).map((f) => f.number));
         commitFigures(sorted);
+        roundRef.current = g.round;
         setGame(g);
         setStatus("ready");
         unsubscribe = service.subscribe(
           g.id,
           (fig) => applyFigure(fig, "remote"),
           // 倒數計時：只接受版本較新的（避免重連時舊資料蓋掉新的）
-          (incoming) => setGame((cur) => (cur && incoming.timer.version >= cur.timer.version ? { ...cur, timer: incoming.timer } : cur)),
+          (incoming) => {
+            if (roundRef.current !== null && incoming.round > roundRef.current) {
+              roundRef.current = incoming.round;
+              lastResetAt.current = Date.now();
+              pendingRejects.current.forEach(clearTimeout);
+              pendingRejects.current = [];
+              setResetEvent({ key: Date.now(), round: incoming.round });
+            }
+            setGame((cur) =>
+              cur && incoming.timer.version >= cur.timer.version ? { ...cur, timer: incoming.timer, round: incoming.round } : cur,
+            );
+          },
         );
       })
       .catch(() => {
@@ -147,6 +173,7 @@ export function useCampGame(service: GameService = gameService, slug: string = G
     isCompleted: foundCount === TOTAL_FIGURES,
     foundEvent,
     rejectEvent,
+    resetEvent,
     clockOffset,
     submitFind,
     retry,

@@ -151,3 +151,20 @@ export function applyTimerAction(timer: GameTimer, action: TimerAction, seconds:
       };
   }
 }
+
+/** 只有倒數進行中可以回報（提前完成後也可以，例如照片被刪掉要重找）；和 start_submission 同規則 */
+export const canReport = (phase: TimerPhase) => phase === "running" || phase === "completed";
+
+/** 不能回報時給玩家的提示 */
+export function reportBlockedMessage(phase: TimerPhase): string {
+  switch (phase) {
+    case "idle":
+      return "遊戲還沒開始，等管理員開始倒數喔！";
+    case "lead":
+      return "倒數馬上開始，再等一下下！";
+    case "paused":
+      return "⏸ 暫停中，等繼續之後再回報喔！";
+    default:
+      return "⌛ 時間到了，不能再回報囉！";
+  }
+}

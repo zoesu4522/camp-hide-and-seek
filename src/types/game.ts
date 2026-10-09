@@ -38,6 +38,8 @@ export interface Game {
   title: string;
   isCompleted: boolean;
   timer: GameTimer;
+  /** 第幾輪（重置遊戲 +1），玩家端用來分辨「重置」和「照片被退回」 */
+  round: number;
 }
 
 export interface Figure {
@@ -92,7 +94,7 @@ export interface MarkFoundResult {
   figure?: Figure;
   foundCount?: number;
   /** status = error 時的原因 */
-  error?: "upload_failed" | "time_up" | "unknown";
+  error?: "upload_failed" | "time_up" | "not_started" | "paused" | "unknown";
 }
 
 export type GameLoadStatus = "loading" | "ready" | "error";

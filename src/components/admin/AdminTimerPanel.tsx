@@ -294,7 +294,7 @@ export default function AdminTimerPanel({ service, timer, onChanged }: Props) {
                   floatText="已重置"
                   onPress={() => run("reset", undefined, true)}
                 >
-                  {confirm === "reset" ? "確定重置？" : "重置"}
+                  {confirm === "reset" ? "確定重置倒數？" : "重置倒數"}
                 </ActionButton>
               )}
             </div>
