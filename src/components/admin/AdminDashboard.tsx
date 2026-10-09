@@ -63,6 +63,11 @@ export default function AdminDashboard({ service, session, onSignOut }: Props) {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [confirmBulk, setConfirmBulk] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetText, setResetText] = useState("");
+  const [resetBusy, setResetBusy] = useState(false);
+  const [cleanupBusy, setCleanupBusy] = useState(false);
+  const mutationBusy = Boolean(busyId) || bulkBusy || resetBusy || cleanupBusy;
   const [doneMsg, setDoneMsg] = useState<string | null>(null);
   const [viewing, setViewing] = useState<PhotoViewerItem | null>(null);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
@@ -117,13 +122,17 @@ export default function AdminDashboard({ service, session, onSignOut }: Props) {
     load();
   };
 
-  const deletable = useMemo(() => submissions.filter((s) => isDeletable(s)), [submissions]);
+  // Keep bulk cleanup limited to inactive reports; successful photos require individual confirmation.
+  const deletable = useMemo(() => submissions.filter((s) => isDeletable(s) && !["active", "approved"].includes(s.reviewStatus)), [submissions]);
 
   const remove = async (ids: string[]) => {
     setActionError(null);
-    const res = await service.deleteSubmissions(ids).catch(() => ({ ok: false, deleted: 0 }));
+    const res = await service.deleteSubmissions(ids).catch(() => ({ ok: false, deleted: 0, cleanupPending: false }));
     if (!res.ok) setActionError("刪除沒有成功，請再試一次。");
-    else setDoneMsg(`已刪除 ${res.deleted} 筆紀錄與照片`);
+    else {
+      setDoneMsg(`已刪除 ${res.deleted} 筆紀錄，進度已同步更新。`);
+      if (res.cleanupPending) setActionError("紀錄已刪除，但照片檔案尚未清除，請按「重試清除照片檔」。");
+    }
     load();
   };
 
@@ -139,6 +148,31 @@ export default function AdminDashboard({ service, session, onSignOut }: Props) {
     await remove(deletable.map((s) => s.id));
     setBulkBusy(false);
     setConfirmBulk(false);
+  };
+
+  const resetGame = async () => {
+    if (mutationBusy || resetText !== "重置遊戲") return;
+    setResetBusy(true);
+    setActionError(null);
+    const res = await service.resetGame(resetText).catch(() => ({ ok: false, deleted: 0, cleanupPending: false }));
+    if (!res.ok) setActionError("重置沒有成功，請重新整理後再試。");
+    else {
+      setResetOpen(false);
+      setResetText("");
+      setViewing(null);
+      setDoneMsg("遊戲已重置：進度 0 / 8、回報已清除、倒數已歸零。");
+      if (res.cleanupPending) setActionError("遊戲已重置，但照片檔案尚未清除，請按「重試清除照片檔」。");
+    }
+    await load();
+    setResetBusy(false);
+  };
+
+  const retryCleanup = async () => {
+    setCleanupBusy(true);
+    const res = await service.cleanupPhotos().catch(() => ({ ok: false }));
+    setActionError(res.ok ? null : "照片檔案清除失敗，稍後可再次重試。");
+    if (res.ok) setDoneMsg("待清除照片檔已處理完成。");
+    setCleanupBusy(false);
   };
 
   useEffect(() => {
@@ -177,6 +211,23 @@ export default function AdminDashboard({ service, session, onSignOut }: Props) {
           </button>
         </div>
       </header>
+
+      <section className="mt-6 rounded-2xl border border-[#e8794a]/50 p-4" aria-label="遊戲資料管理">
+        <h2 className="text-[17px]">遊戲資料管理</h2>
+        <p className="mt-2 text-sm text-cream/70">重置會清除所有回報與照片，8 個小人恢復未找到，倒數歸零。玩家名稱不受影響，資料無法復原。</p>
+        <div className="mt-3 flex flex-wrap gap-3">
+          <button type="button" disabled={mutationBusy || loadState !== "ready"} onClick={() => { setResetText(""); setResetOpen(true); }} className="min-h-11 rounded-lg bg-[#a64028] px-4 disabled:opacity-40">重置遊戲</button>
+          <button type="button" disabled={mutationBusy} onClick={retryCleanup} className="min-h-11 rounded-lg border border-white/20 px-4 disabled:opacity-40">{cleanupBusy ? "清除中…" : "重試清除照片檔"}</button>
+        </div>
+        {resetOpen && <div role="alertdialog" aria-label="確認重置遊戲" className="mt-4 rounded-xl bg-[#2a1610] p-4">
+          <label htmlFor="reset-confirm">輸入「重置遊戲」確認清除全部資料</label>
+          <input id="reset-confirm" autoFocus autoComplete="off" value={resetText} disabled={resetBusy} onChange={(e) => setResetText(e.target.value)} className="mt-2 block w-full rounded-lg border border-white/30 bg-[#07182b] p-3" />
+          <div className="mt-3 flex gap-3">
+            <button type="button" disabled={mutationBusy || resetText !== "重置遊戲"} onClick={resetGame} className="min-h-11 rounded-lg bg-[#a64028] px-4 disabled:opacity-40">{resetBusy ? "重置中…" : "確認重置全部資料"}</button>
+            <button type="button" disabled={resetBusy} onClick={() => setResetOpen(false)} className="min-h-11 rounded-lg border border-white/20 px-4">取消重置</button>
+          </div>
+        </div>}
+      </section>
 
       {loadState === "error" && (
         <div className="mt-6 rounded-2xl border border-[#e8794a]/50 bg-[#2a1610] p-4" role="alert">
@@ -324,7 +375,7 @@ export default function AdminDashboard({ service, session, onSignOut }: Props) {
           {visible.map((s) => {
             const reviewLabel = REVIEW_LABEL[s.reviewStatus];
             const canReview = s.uploadStatus === "uploaded" && s.reviewStatus === "active";
-            const busy = busyId === s.id;
+            const busy = mutationBusy;
             const confirming = confirmRejectId === s.id;
             const canDelete = isDeletable(s);
             const confirmingDelete = confirmDeleteId === s.id;
@@ -400,7 +451,7 @@ export default function AdminDashboard({ service, session, onSignOut }: Props) {
                   )}
                   {canDelete && confirmingDelete && (
                     <div className="mt-2 flex flex-wrap items-center gap-2" role="alertdialog" aria-label="確認刪除">
-                      <span className="text-[13px] text-[#ffcbb5]">紀錄和照片會一起刪除</span>
+                      <span className="text-[13px] text-[#ffcbb5]">紀錄和照片會一起刪除，無法復原。若這張照片正在點亮小人，#{s.figureNumber} 會恢復未找到。</span>
                       <button
                         type="button"
                         disabled={busy}

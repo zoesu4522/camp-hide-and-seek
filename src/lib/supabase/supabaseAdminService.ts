@@ -25,6 +25,22 @@ async function fetchGameRow(slug: string) {
   return toGame(data as GameRow);
 }
 
+async function cleanupPhotos() {
+  const sb = getSupabase();
+  try {
+    for (;;) {
+      const { data, error } = await sb.from("camp_photo_cleanup").select("path").limit(100);
+      if (error) return { ok: false };
+      if (!data?.length) return { ok: true };
+      const paths = data.map((row) => row.path as string);
+      const removed = await sb.storage.from(PHOTO_BUCKET).remove(paths);
+      if (removed.error) return { ok: false };
+      const acknowledged = await sb.from("camp_photo_cleanup").delete().in("path", paths);
+      if (acknowledged.error) return { ok: false };
+    }
+  } catch { return { ok: false }; }
+}
+
 export const supabaseAdminService: AdminService = {
   async getSession(): Promise<AdminSession | null> {
     const sb = getSupabase();
@@ -95,15 +111,20 @@ export const supabaseAdminService: AdminService = {
     if (ids.length === 0) return { ok: true, deleted: 0 };
     const sb = getSupabase();
     const { data, error } = await sb.rpc("admin_delete_submissions", { p_submission_ids: ids });
-    if (error) return { ok: false, deleted: 0 };
+    if (error || !data?.ok) return { ok: false, deleted: 0 };
     const res = data as { deleted: number; photo_paths: string[] };
-    // 紀錄刪掉後再刪照片檔（失敗也不影響畫面，只是 Storage 留檔）
-    const paths = res.photo_paths ?? [];
-    for (let i = 0; i < paths.length; i += 100) {
-      await sb.storage.from(PHOTO_BUCKET).remove(paths.slice(i, i + 100));
-    }
-    return { ok: true, deleted: res.deleted };
+    const cleanup = await cleanupPhotos();
+    return { ok: true, deleted: res.deleted, cleanupPending: !cleanup.ok };
   },
+
+  async resetGame(confirmation) {
+    const { data, error } = await getSupabase().rpc("admin_reset_game", { p_game_slug: GAME_SLUG, p_confirmation: confirmation });
+    if (error || !data?.ok) return { ok: false, deleted: 0 };
+    const cleanup = await cleanupPhotos();
+    return { ok: true, deleted: data.deleted, cleanupPending: !cleanup.ok };
+  },
+
+  cleanupPhotos,
 
   async controlTimer(action, seconds) {
     const { data, error } = await getSupabase().rpc("admin_timer", {

@@ -7,7 +7,7 @@
  *
  * 正式版（Phase 3）：supabase.auth.signInWithOtp + admin_users 白名單 + RLS / security definer RPC。
  */
-import { isDeletable, type AdminService, type AdminSession, type Figure, type Submission } from "@/types/game";
+import { IDLE_TIMER, isDeletable, type AdminService, type AdminSession, type Figure, type Submission } from "@/types/game";
 import { applyTimerAction } from "@/lib/timer";
 import { onDbChange, readDb, recount, wait, writeDb } from "./mockDb";
 
@@ -53,12 +53,23 @@ export const mockAdminService: AdminService = {
   async deleteSubmissions(ids) {
     await wait(250);
     const db = readDb();
-    const inUse = new Set(db.figures.map((f) => f.submissionId));
-    const target = new Set(ids);
-    const keep = db.submissions.filter((s) => !(target.has(s.id) && !inUse.has(s.id) && isDeletable(s)));
-    writeDb({ ...db, submissions: keep });
+    const target = new Set(db.submissions.filter((s) => ids.includes(s.id) && isDeletable(s)).map((s) => s.id));
+    const keep = db.submissions.filter((s) => !target.has(s.id));
+    const figures = db.figures.map((f) => f.submissionId && target.has(f.submissionId)
+      ? { ...f, isFound: false, foundAt: null, photoUrl: null, submissionId: null, foundByName: null, isVerified: false } : f);
+    writeDb(recount({ ...db, figures, submissions: keep }));
     return { ok: true, deleted: db.submissions.length - keep.length };
   },
+
+  async resetGame(confirmation) {
+    if (confirmation !== "重置遊戲") return { ok: false, deleted: 0 };
+    const db = readDb();
+    const figures = db.figures.map((f) => ({ ...f, isFound: false, foundAt: null, photoUrl: null, submissionId: null, foundByName: null, isVerified: false }));
+    writeDb({ ...db, figures, submissions: [], game: { ...db.game, isCompleted: false, timer: { ...IDLE_TIMER, version: db.game.timer.version + 1 } } });
+    return { ok: true, deleted: db.submissions.length };
+  },
+
+  async cleanupPhotos() { return { ok: true }; },
 
   async controlTimer(action, seconds) {
     await wait(150);

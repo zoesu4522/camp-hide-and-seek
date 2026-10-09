@@ -101,7 +101,11 @@ anon key 本來就是公開的，安全性由 RLS + RPC 保護；**不要**把 s
 
 ### 重置遊戲
 
-網站上不提供 Reset。SQL Editor 執行 `supabase/reset.sql`，照片檔到 Storage → `figure-photos` 手動清空。
+管理後台「遊戲資料管理」提供重置：輸入「重置遊戲」後確認，清除全部回報、將進度歸零並重置倒數。玩家名稱保留。成功上傳的照片也可逐筆刪除，若為目前點亮照片，對應小人會恢复未找到。
+
+既有專案發布本版前，先在 Supabase SQL Editor 執行 `supabase/migrations/20261009_admin_delete_reset.sql`；此檔只安裝功能，不會重置現有遊戲。新專案直接執行完整 `schema.sql`。照片檔清理失敗會顯示警告並保留伺服器待清除清單，可在後台按「重試清除照片檔」。
+
+新增功能驗證：lint、production build、手機版模擬刪除/確認/取消/重置/刷新，以及 PostgreSQL 17 上 `supabase/tests/admin_delete_reset.sql` 的成功照片刪除、冪等、權限、錯誤確認及過期上傳拒絕測試。測試僅使用隔離資料庫，未清除正式資料。
 
 ### 本機 SQL 測試（選用）
 
